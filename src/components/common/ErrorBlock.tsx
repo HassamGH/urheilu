@@ -14,8 +14,8 @@ export function ErrorBlock({ message, onRetry }: { message: string; onRetry: () 
       <div className="absolute inset-x-0 top-0 h-0.5 bg-brand-live" />
 
       <div className="relative flex flex-col items-center text-center gap-5 md:gap-6">
-        <span className="material-symbols-outlined flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-brand-live/30 bg-brand-live/10 text-3xl! text-brand-live">
-          signal_disconnected
+        <span className="material-symbols-outlined leading-none flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-brand-live/30 bg-brand-live/10 text-[28px]! text-brand-live">
+          cloud_off
         </span>
 
         <div>
