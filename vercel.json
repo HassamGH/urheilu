@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/watchfooty/:path*",
+      "destination": "https://api.watchfooty.st/api/v1/:path*"
+    }
+  ]
+}
