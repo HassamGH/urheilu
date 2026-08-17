@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  /* Softened off-white — every `text-white` / `bg-white` / `border-white` utility in the app
+     uses this instead of pure #fff, for a less stark look against the near-black background. */
+  --color-white: #e6e6e4;
+  --color-brand-bg: #0a0a0b;
+  --color-brand-surface: #161618;
+  --color-brand-border: #2c2c2e;
+  --color-brand-accent: #e6e6e4;
+  --color-brand-muted: #8e8e93;
+  --color-brand-live: #ff3b30;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --animate-pop-in: pop-in 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes pop-in {
+  0% { opacity: 0; transform: translateY(28px) scale(0.85); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@utility hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: "liga";
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+}
