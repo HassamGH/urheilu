@@ -4,12 +4,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { getMatchDetails, getStreams } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
-import { useNavigate } from '../lib/navigation';
+import { useMarkPageArrived, useNavigate } from '../lib/navigation';
 import type { Match, Stream } from '../types';
 import { ErrorBlock } from '../components/common/ErrorBlock';
 import { EmptyState } from '../components/common/EmptyState';
 
 export function PlayerPage({ matchId, streamId, initialMatch, initialStreams }: { matchId: string; streamId: string; initialMatch?: Match; initialStreams?: Stream[] }) {
+  // Tells app/loading.tsx the navigation that led here (if any) is over — see its comment. Marked
+  // as soon as this component mounts (i.e. once its lazy-loaded chunk has arrived), independent of
+  // whether the match/stream data underneath is still resolving — that has its own black-screen
+  // loading state below, a separate concern from the route-transition indicator.
+  const markPageArrived = useMarkPageArrived();
+  useEffect(markPageArrived, [markPageArrived]);
+
   const match = useAsync((signal) => getMatchDetails(matchId, signal), [matchId], initialMatch);
   const streams = useAsync((signal) => getStreams(matchId, match.data?.sportId, signal), [matchId, match.data?.sportId], initialStreams);
   const selected = useMemo(() => streams.data?.find((stream) => stream.id === streamId), [streams.data, streamId]);

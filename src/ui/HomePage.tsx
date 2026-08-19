@@ -12,11 +12,13 @@ import { MatchesByDate } from '../components/home/MatchesByDate';
 import { ErrorBlock } from '../components/common/ErrorBlock';
 import { EmptyState } from '../components/common/EmptyState';
 import { TopLoader } from '../components/common/TopLoader';
-import { sportFilterHref } from '../lib/navigation';
+import { sportFilterHref, useMarkPageArrived } from '../lib/navigation';
 import { orderFeaturedMatches } from '../lib/featuredMatch';
 import { sortMatches } from '../lib/sortMatches';
 
 const REFRESH_INTERVAL_MS = 90000;
+
+type SportMatches = { sport: string; matches: Match[] };
 
 // `initialSport` seeds local state rather than staying a controlled prop from the URL: switching
 // the sport filter deliberately does NOT go through Next's router (that would trigger a server
@@ -25,6 +27,10 @@ const REFRESH_INTERVAL_MS = 90000;
 // URL updated cosmetically via `history.pushState` for shareability/back-button support. The
 // popstate listener below is what makes back/forward still work correctly for that cosmetic change.
 export function HomePage({ sport: initialSport, initialMatches, initialFeatured }: { sport: string; initialMatches?: Match[]; initialFeatured?: Match[] }) {
+  // Tells app/loading.tsx the navigation that led here (if any) is over — see its comment.
+  const markPageArrived = useMarkPageArrived();
+  useEffect(markPageArrived, [markPageArrived]);
+
   const [sport, setSport] = useState(initialSport);
   // Flips permanently on the first sport change (by click or by popstate) so `initialMatches` —
   // a snapshot from the original server render — is only ever handed to useAsync once, even if the
@@ -43,10 +49,18 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  const matches = useAsync(
-    (signal) => getMatchesForHomePage(sport, signal),
+  // The fetched matches are tagged with the sport they were fetched FOR, not read from the `sport`
+  // state directly — `sport` updates the instant a filter pill is clicked, but the underlying
+  // fetch takes a moment. Deriving the layout choice (rails-by-sport vs. one date-grouped rail,
+  // below) from bare `sport` let the OLD sport's matches render under the NEW sport's layout for
+  // that gap — e.g. clicking "All Sports" while viewing Football briefly showed a single
+  // "football"-titled rail (the all-sports layout, football's stale data) before the real
+  // multi-sport data replaced it. Tagging ties data and layout together atomically: they can only
+  // ever change in the same setState call, so that mismatched combination can't render.
+  const matches = useAsync<SportMatches>(
+    (signal) => getMatchesForHomePage(sport, signal).then((fetched) => ({ sport, matches: fetched })),
     [sport],
-    !sportEverChangedRef.current && sport === initialSport ? initialMatches : undefined
+    !sportEverChangedRef.current && sport === initialSport && initialMatches !== undefined ? { sport: initialSport, matches: initialMatches } : undefined
   );
 
   // Independent of the sport filter — the banner always surfaces the same cross-sport popular/live
@@ -68,7 +82,11 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
     setSport(slug);
   };
 
-  const visibleMatches = matches.data || [];
+  // Falls back to `sport` only before anything has ever loaded (matches.data is still null) — once
+  // there's data, its own tag is what layout decisions below key off, not the (possibly
+  // further-ahead) `sport` state.
+  const displayedSport = matches.data?.sport ?? sport;
+  const visibleMatches = matches.data?.matches || [];
   const liveMatches = useMemo(() => sortMatches(visibleMatches.filter((match) => match.isLive)), [visibleMatches]);
   const featuredMatches = useMemo(() => orderFeaturedMatches(featured.data || []), [featured.data]);
   const sectionedMatches = useMemo(() => {
@@ -99,12 +117,12 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
 
         <TopLoader loading={matches.loading} />
         {showListError && <ErrorBlock message="Unable to load matches." onRetry={matches.retry} />}
-        {showEmptyState && <EmptyState text={sport === 'all' ? 'No matches are currently available.' : 'No matches available for this sport right now.'} />}
-        {sport === 'all' && liveMatches.length > 0 && <MatchRail title="Live Now" matches={liveMatches} />}
-        {sport === 'all' && sectionedMatches.map((section) => (
+        {showEmptyState && <EmptyState text={displayedSport === 'all' ? 'No matches are currently available.' : 'No matches available for this sport right now.'} />}
+        {displayedSport === 'all' && liveMatches.length > 0 && <MatchRail title="Live Now" matches={liveMatches} />}
+        {displayedSport === 'all' && sectionedMatches.map((section) => (
           <MatchRail key={section.title} title={section.title} matches={section.matches} />
         ))}
-        {sport !== 'all' && visibleMatches.length > 0 && <MatchesByDate matches={visibleMatches} />}
+        {displayedSport !== 'all' && visibleMatches.length > 0 && <MatchesByDate matches={visibleMatches} />}
       </main>
     </div>
   );

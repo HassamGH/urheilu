@@ -1,9 +1,14 @@
 'use client';
 
-import { useNavigate } from '../lib/navigation';
+import { useEffect } from 'react';
+import { useMarkPageArrived, useNavigate } from '../lib/navigation';
 
 export function NotFoundPage() {
   const navigate = useNavigate();
+  // Tells app/loading.tsx the navigation that led here (if any) is over — see its comment.
+  const markPageArrived = useMarkPageArrived();
+  useEffect(markPageArrived, [markPageArrived]);
+
   return (
     <div className="min-h-screen bg-brand-bg text-white flex items-center justify-center px-4">
       <div className="text-center max-w-lg animate-pop-in">

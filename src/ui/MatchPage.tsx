@@ -1,16 +1,22 @@
 'use client';
 
+import { useEffect } from 'react';
 import { getMatchDetails, getStreams } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
 import type { Match, Stream } from '../types';
 import { formatMatchSchedule } from '../lib/matchFormatting';
 import { groupStreamsByQuality } from '../lib/streamGroups';
+import { useMarkPageArrived } from '../lib/navigation';
 import { ErrorBlock } from '../components/common/ErrorBlock';
 import { EmptyState } from '../components/common/EmptyState';
 import { TopLoader } from '../components/common/TopLoader';
 import { StreamSourceList } from '../components/common/StreamSourceList';
 
 export function MatchPage({ matchId, initialMatch, initialStreams }: { matchId: string; initialMatch?: Match; initialStreams?: Stream[] }) {
+  // Tells app/loading.tsx the navigation that led here (if any) is over — see its comment.
+  const markPageArrived = useMarkPageArrived();
+  useEffect(markPageArrived, [markPageArrived]);
+
   const match = useAsync((signal) => getMatchDetails(matchId, signal), [matchId], initialMatch);
   const streams = useAsync((signal) => getStreams(matchId, match.data?.sportId, signal), [matchId, match.data?.sportId], initialStreams);
   const groups = groupStreamsByQuality(streams.data || []);
