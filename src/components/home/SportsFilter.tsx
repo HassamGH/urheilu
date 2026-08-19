@@ -18,7 +18,8 @@ export function SportsFilter({ sport, onChange }: { sport: string; onChange: (va
             onChange('all');
           }}
         >
-          ALL SPORTS
+          <span className="material-symbols-outlined text-xs shrink-0">trophy</span>
+          <span className="hidden sm:inline truncate">ALL SPORTS</span>
         </a>
         {FILTER_SPORTS.map((item) => (
           <a
