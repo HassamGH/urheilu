@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import '../styles.css';
 import { ServiceWorkerRegistration } from './service-worker-registration';
 import { NavigationProgress } from '../lib/navigation';
+import { AppLoadingScreen } from '../components/common/AppLoadingScreen';
 
 export const metadata: Metadata = {
   title: 'Urheilu',
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-brand-bg text-white font-sans">
         <NavigationProgress>{children}</NavigationProgress>
+        <AppLoadingScreen />
         <ServiceWorkerRegistration />
       </body>
     </html>

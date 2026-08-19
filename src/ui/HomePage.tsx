@@ -57,10 +57,18 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
   // "football"-titled rail (the all-sports layout, football's stale data) before the real
   // multi-sport data replaced it. Tagging ties data and layout together atomically: they can only
   // ever change in the same setState call, so that mismatched combination can't render.
+  // Memoized rather than a fresh literal per render — useAsync's effect depends on this value's
+  // identity, and a new object reference on every render (even one with identical contents) sent it
+  // into an infinite render loop: the effect would fire, its setState would trigger a re-render,
+  // which recreated the literal, which the effect saw as "changed" again.
+  const matchesInitialData = useMemo(
+    () => (!sportEverChangedRef.current && sport === initialSport && initialMatches !== undefined ? { sport: initialSport, matches: initialMatches } : undefined),
+    [sport, initialSport, initialMatches]
+  );
   const matches = useAsync<SportMatches>(
     (signal) => getMatchesForHomePage(sport, signal).then((fetched) => ({ sport, matches: fetched })),
     [sport],
-    !sportEverChangedRef.current && sport === initialSport && initialMatches !== undefined ? { sport: initialSport, matches: initialMatches } : undefined
+    matchesInitialData
   );
 
   // Independent of the sport filter — the banner always surfaces the same cross-sport popular/live
