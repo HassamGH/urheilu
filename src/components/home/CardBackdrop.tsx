@@ -6,6 +6,9 @@ export function CardBackdrop({ homeSrc, awaySrc, fallback }: { homeSrc?: string;
           src={homeSrc}
           alt=""
           draggable={false}
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
           className="absolute inset-y-0 left-0 w-3/5 h-full object-cover blur-lg scale-110 opacity-90 mask-[linear-gradient(to_right,black_45%,transparent_100%)]"
         />
       )}
@@ -14,6 +17,9 @@ export function CardBackdrop({ homeSrc, awaySrc, fallback }: { homeSrc?: string;
           src={awaySrc}
           alt=""
           draggable={false}
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
           className="absolute inset-y-0 right-0 w-3/5 h-full object-cover blur-lg scale-110 opacity-90 mask-[linear-gradient(to_left,black_45%,transparent_100%)]"
         />
       )}

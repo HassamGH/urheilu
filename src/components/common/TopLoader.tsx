@@ -29,7 +29,7 @@ export function TopLoader({ loading }: { loading: boolean }) {
   return (
     <div className="fixed top-0 left-0 w-full h-0.75 z-60 overflow-hidden pointer-events-none" role="status" aria-label="Loading">
       <div
-        className="h-full bg-white transition-all ease-out"
+        className="h-full bg-brand-live transition-all ease-out"
         style={{
           width: `${progress}%`,
           opacity: visible ? 1 : 0,

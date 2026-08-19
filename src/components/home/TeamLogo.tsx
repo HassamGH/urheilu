@@ -1,4 +1,4 @@
-export function TeamLogo({ src, name, fallback }: { src?: string; name?: string; fallback: string }) {
+export function TeamLogo({ src, name, fallback, priority }: { src?: string; name?: string; fallback: string; priority?: boolean }) {
   if (src) {
     return (
       <img
@@ -6,6 +6,9 @@ export function TeamLogo({ src, name, fallback }: { src?: string; name?: string;
         src={src}
         alt={name || ''}
         draggable={false}
+        loading={priority ? 'eager' : 'lazy'}
+        decoding="async"
+        fetchPriority={priority ? 'high' : undefined}
       />
     );
   }

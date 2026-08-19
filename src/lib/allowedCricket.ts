@@ -50,11 +50,15 @@ function normalizeTeamName(name: string) {
   return value;
 }
 
-function isInternationalCricketMatch(match: Match) {
+export function isInternationalCricketMatch(match: Match) {
   if (!match.homeTeam || !match.awayTeam) return false;
   return INTERNATIONAL_TEAMS.has(normalizeTeamName(match.homeTeam)) && INTERNATIONAL_TEAMS.has(normalizeTeamName(match.awayTeam));
 }
 
+// Domestic franchise leagues, plus the major ICC global events by name — the latter are already
+// covered by isInternationalCricketMatch in the normal case (both sides are countries), but naming
+// them explicitly guarantees they show even for an edge case (a warm-up game, an unusual team-name
+// format) where the team-name check alone might miss.
 const ALLOWED_CRICKET_LEAGUE_KEYWORDS = [
   'ipl', 'indian premier league',
   'psl', 'pakistan super league',
@@ -64,7 +68,9 @@ const ALLOWED_CRICKET_LEAGUE_KEYWORDS = [
   'global t20 canada',
   'lpl', 'lanka premier league',
   'sa20', 'sa 20',
-  'the hundred'
+  'the hundred',
+  't20 world cup', 'odi world cup', 'cricket world cup', 'world cup',
+  'world test championship', 'test championship', 'wtc'
 ];
 
 export function isAllowedCricketMatch(match: Match) {
