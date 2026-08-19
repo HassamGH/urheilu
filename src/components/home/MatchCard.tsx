@@ -55,6 +55,7 @@ export function MatchCard({ match }: { match: Match }) {
         aria-label={`Watch ${match.title}`}
         className="w-full flex flex-col text-left cursor-pointer"
         onClick={markNavigating}
+        draggable={false}
       >
         {/* Fixed-height image area — the title lives in its own row below instead of overlaid on
             top, so the backdrop/poster is never partially covered by it. */}

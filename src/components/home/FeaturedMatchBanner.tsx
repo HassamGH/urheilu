@@ -114,6 +114,7 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
             href={`/match/${encodeURIComponent(match.id)}`}
             aria-label={`Watch ${match.title}`}
             onClick={markNavigating}
+            draggable={false}
             className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 font-bold px-5 py-3 rounded-sm transition-all duration-200 bg-white hover:bg-gray-200 hover:-translate-y-px text-black cursor-pointer"
           >
             <span className="material-symbols-outlined text-base">play_arrow</span>

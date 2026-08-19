@@ -7,14 +7,13 @@ import { TopLoader } from '../components/common/TopLoader';
 // results, stream source buttons, etc.) is a real <Link>, not a button with an onClick handler —
 // Next only prefetches a route's data ahead of time for <Link>, not for a programmatic
 // router.push(), and since match cards and similar are already on screen (in viewport) well before
-// anyone clicks one, that prefetch has almost always already finished by click time. That's what
-// makes the transition instant with no loading state at all in the common case, rather than
-// patching around loading.tsx after the fact.
+// anyone clicks one, that prefetch has almost always already finished by click time. Combined with
+// there being no app/loading.tsx Suspense boundary, Next keeps the current page mounted until the
+// destination's data is fully ready and swaps directly — no blank/interstitial screen in between.
 //
-// The flag below is a safety net for the cases prefetching doesn't cover — a click that lands
-// before the prefetch resolves, a slow connection, browser back/forward past what Next's client
-// router cache still holds — so navigation never LOOKS broken even when it isn't instant.
-const NavigatingContext = createContext(false);
+// The flag below only drives the top progress bar, as a hint for the (now rare) cases where a
+// navigation isn't instant — a click landing before prefetch resolves, a slow connection, browser
+// back/forward past what Next's client router cache still holds.
 // Not exported directly — components call useMarkNavigating()/useMarkPageArrived() instead of
 // touching the setter, so the only ways to flip this are "a <Link> was clicked" and "the
 // destination page mounted".
@@ -37,10 +36,8 @@ export function NavigationProgress({ children }: { children: ReactNode }) {
 
   return (
     <SetNavigatingContext.Provider value={setNavigating}>
-      <NavigatingContext.Provider value={navigating}>
-        <TopLoader loading={navigating} />
-        {children}
-      </NavigatingContext.Provider>
+      <TopLoader loading={navigating} />
+      {children}
     </SetNavigatingContext.Provider>
   );
 }
@@ -60,17 +57,12 @@ export function useMarkNavigating() {
 //
 //   useEffect(markPageArrived, [markPageArrived]);
 //
-// so app/loading.tsx knows the navigation that led here has actually finished, not just that Next
-// has started rendering something for the route. Safe to call even when the page was reached by a
-// fresh/cold navigation (no in-flight navigation at all) — it's just a no-op in that case, since
-// `navigating` was already false.
+// so the top progress bar knows the navigation that led here has actually finished. Safe to call
+// even when the page was reached by a fresh/cold navigation (no in-flight navigation at all) — it's
+// just a no-op in that case, since `navigating` was already false.
 export function useMarkPageArrived() {
   const setNavigating = useContext(SetNavigatingContext);
   return useCallback(() => setNavigating(false), [setNavigating]);
-}
-
-export function useNavigating() {
-  return useContext(NavigatingContext);
 }
 
 // The sport filter lives in the URL (instead of plain component state) so that navigating away
