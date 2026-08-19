@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // `next dev`/`next build` otherwise regenerate AGENTS.md/CLAUDE.md (a boilerplate note for AI
+  // coding agents about Next.js 16's breaking changes) on every run — not wanted here.
+  agentRules: false,
   // Client-side calls to WatchFooty (the sport-filter switch, the 90s poll/retry — see API_BASE in
   // watchfooty.ts) go through this relative path rather than the upstream URL directly, so the
   // browser never needs CORS clearance for it. Living in next.config.js (not vercel.json) means it

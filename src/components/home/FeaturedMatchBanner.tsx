@@ -91,11 +91,7 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
             </>
           )}
           <span className="text-gray-500 shrink-0">/</span>
-          {/* formatMatchSchedule renders the match's local kickoff time — legitimately different
-              between SSR (server has no viewer timezone) and hydration. */}
-          <span suppressHydrationWarning className="normal-case tracking-normal text-gray-400 shrink-0">
-            {schedule}
-          </span>
+          <span className="normal-case tracking-normal text-gray-400 shrink-0">{schedule}</span>
         </div>
 
         <h2 className="mt-2 shrink-0 text-3xl md:text-5xl font-black text-white max-w-3xl leading-tight">{match.title}</h2>
