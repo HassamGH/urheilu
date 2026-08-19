@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import type { Match } from '../../types';
-import { useNavigate } from '../../lib/navigation';
+import { useMarkNavigating } from '../../lib/navigation';
 import { Logo } from './Logo';
 
 const MAX_RESULTS = 5;
@@ -8,7 +9,7 @@ const MAX_RESULTS = 5;
 // Self-contained: its own query state and its own filtered results, entirely separate from
 // whatever sport/date listing is showing on the page — it's a quick-jump popup, not a page filter.
 export function Header({ matches }: { matches: Match[] }) {
-  const navigate = useNavigate();
+  const markNavigating = useMarkNavigating();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,10 +47,10 @@ export function Header({ matches }: { matches: Match[] }) {
 
   return (
     <header className="absolute top-0 inset-x-0 z-30 flex items-center justify-between w-full px-4 md:px-12 py-4 md:py-6 gap-4">
-      <button className="flex items-center gap-1 shrink-0 cursor-pointer" onClick={() => navigate('/')}>
+      <Link href="/" className="flex items-center gap-1 shrink-0 cursor-pointer" onClick={markNavigating}>
         <Logo className="w-7 h-7" />
         <span className="text-base font-black italic tracking-tighter text-white">URHEILU</span>
-      </button>
+      </Link>
 
       <div ref={containerRef} className="relative shrink-0">
         {open ? (
@@ -85,10 +86,11 @@ export function Header({ matches }: { matches: Match[] }) {
               <p className="px-4 py-6 text-sm text-gray-400 text-center">No matches found.</p>
             ) : (
               results.map((match) => (
-                <button
+                <Link
                   key={match.id}
+                  href={`/match/${encodeURIComponent(match.id)}`}
                   onClick={() => {
-                    navigate(`/match/${encodeURIComponent(match.id)}`);
+                    markNavigating();
                     closeAndClear();
                   }}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 transition-colors cursor-pointer border-b border-brand-border last:border-b-0"
@@ -98,7 +100,7 @@ export function Header({ matches }: { matches: Match[] }) {
                     <span className="block text-sm text-white truncate">{match.title}</span>
                     {match.competition && <span className="block text-xs text-gray-500 truncate">{match.competition}</span>}
                   </span>
-                </button>
+                </Link>
               ))
             )}
           </div>

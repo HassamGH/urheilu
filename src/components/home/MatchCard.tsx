@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import type { Match } from '../../types';
-import { useNavigate } from '../../lib/navigation';
+import { useMarkNavigating } from '../../lib/navigation';
 import { getStreamedFightPoster, getStreamedRacingPoster } from '../../api/streamed';
 import { CARD_FALLBACK_BACKGROUNDS, hashString } from '../../lib/cardBackgrounds';
 import { compactStatus, teamInitial } from '../../lib/matchFormatting';
@@ -9,7 +10,7 @@ import { TeamLogo } from './TeamLogo';
 import { MatchupDivider } from './MatchupDivider';
 
 export function MatchCard({ match }: { match: Match }) {
-  const navigate = useNavigate();
+  const markNavigating = useMarkNavigating();
   const fallback = CARD_FALLBACK_BACKGROUNDS[hashString(match.id) % CARD_FALLBACK_BACKGROUNDS.length];
   const [posterFailed, setPosterFailed] = useState(false);
   // Some fixtures (WWE shows, UFC contender series, etc.) have no home/away team at all — the API
@@ -49,7 +50,12 @@ export function MatchCard({ match }: { match: Match }) {
 
   return (
     <article className="min-w-75 md:min-w-100 relative overflow-hidden border border-brand-border hover:border-white/40 transition-colors group shrink-0 bg-[#0d0d0e]">
-      <button aria-label={`Watch ${match.title}`} className="w-full flex flex-col text-left cursor-pointer" onClick={() => navigate(`/match/${encodeURIComponent(match.id)}`)}>
+      <Link
+        href={`/match/${encodeURIComponent(match.id)}`}
+        aria-label={`Watch ${match.title}`}
+        className="w-full flex flex-col text-left cursor-pointer"
+        onClick={markNavigating}
+      >
         {/* Fixed-height image area — the title lives in its own row below instead of overlaid on
             top, so the backdrop/poster is never partially covered by it. */}
         <div className="relative h-55 shrink-0 overflow-hidden">
@@ -86,7 +92,7 @@ export function MatchCard({ match }: { match: Match }) {
         <div className="w-full bg-black py-2 px-4 text-center text-xs font-semibold text-gray-400 border-t border-white/10 truncate">
           {match.title}
         </div>
-      </button>
+      </Link>
     </article>
   );
 }

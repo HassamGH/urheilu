@@ -1,67 +1,72 @@
 'use client';
 
-import { createContext, useCallback, useContext, useState, useTransition, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { TopLoader } from '../components/common/TopLoader';
 
-type NavigateFn = (path: string) => void;
-
-// Shared across every useNavigate() call site so they all drive the SAME "is a navigation in
-// flight" flag, letting the one TopLoader rendered below reflect it regardless of which component
-// triggered it, instead of each caller needing its own pending state.
-const NavigateContext = createContext<NavigateFn>(() => {});
+// Every navigable element in the app (MatchCard, the featured banner's CTA, the header logo/search
+// results, stream source buttons, etc.) is a real <Link>, not a button with an onClick handler —
+// Next only prefetches a route's data ahead of time for <Link>, not for a programmatic
+// router.push(), and since match cards and similar are already on screen (in viewport) well before
+// anyone clicks one, that prefetch has almost always already finished by click time. That's what
+// makes the transition instant with no loading state at all in the common case, rather than
+// patching around loading.tsx after the fact.
+//
+// The flag below is a safety net for the cases prefetching doesn't cover — a click that lands
+// before the prefetch resolves, a slow connection, browser back/forward past what Next's client
+// router cache still holds — so navigation never LOOKS broken even when it isn't instant.
 const NavigatingContext = createContext(false);
-// Not exported — only app/loading.tsx (see the comment there) needs to call this, and only from
-// inside a page component's own mount effect, so it isn't a general-purpose API.
-const MarkArrivedContext = createContext<() => void>(() => {});
+// Not exported directly — components call useMarkNavigating()/useMarkPageArrived() instead of
+// touching the setter, so the only ways to flip this are "a <Link> was clicked" and "the
+// destination page mounted".
+const SetNavigatingContext = createContext<(value: boolean) => void>(() => {});
 
-// Wrapping router.push in a transition marks the update as non-urgent (React can keep the current
-// page interactive a moment longer) but its `isPending` flips back to false as soon as React
-// commits to SOMETHING for the new route — including the target route's loading.tsx fallback
-// itself, which is exactly the moment we still need to keep showing our own "navigating" signal
-// through. So `navigating` is tracked separately as plain state: true from the moment navigate()
-// is called, and only cleared once the destination page has actually mounted and called
-// markArrived() (see the pattern in HomePage/MatchPage/etc.) — not merely once Next has decided
-// what to render in the meantime.
+// Mounted once in the root layout so it covers every route.
 export function NavigationProgress({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
   const [navigating, setNavigating] = useState(false);
-  const navigate: NavigateFn = (path) => {
-    setNavigating(true);
-    startTransition(() => router.push(path));
-  };
-  const markArrived = useCallback(() => setNavigating(false), []);
+
+  useEffect(() => {
+    // Browser back/forward doesn't go through any <Link> click — it's the browser itself changing
+    // the URL, which Next's router intercepts. Most of the time this resolves instantly from
+    // Next's own client-side cache of recently-visited segments, but when that cache has expired
+    // it triggers a real fetch same as any other navigation, so this needs the same "navigating"
+    // treatment as a click does.
+    const onPopState = () => setNavigating(true);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
   return (
-    <NavigateContext.Provider value={navigate}>
+    <SetNavigatingContext.Provider value={setNavigating}>
       <NavigatingContext.Provider value={navigating}>
-        <MarkArrivedContext.Provider value={markArrived}>
-          <TopLoader loading={navigating} />
-          {children}
-        </MarkArrivedContext.Provider>
+        <TopLoader loading={navigating} />
+        {children}
       </NavigatingContext.Provider>
-    </NavigateContext.Provider>
+    </SetNavigatingContext.Provider>
   );
 }
 
-// Same call shape as the old bare `navigate(path)` function — every call site keeps
-// `navigate(path)`, just via `const navigate = useNavigate()` inside the component body, since
-// this needs to be the SHARED navigate from NavigationProgress above, not a bare `router.push`.
-export function useNavigate() {
-  return useContext(NavigateContext);
+// Attach to a <Link>'s onClick (alongside its href, not instead of it — this only flips the flag,
+// it never calls preventDefault, so Link's own navigation still happens normally):
+//
+//   <Link href={path} onClick={markNavigating}>
+//
+export function useMarkNavigating() {
+  const setNavigating = useContext(SetNavigatingContext);
+  return useCallback(() => setNavigating(true), [setNavigating]);
 }
 
-// A page component that can be reached via useNavigate() (i.e. every top-level page: HomePage,
-// MatchPage, the player page, NotFoundPage) should call this once on mount:
+// A page component reachable via a <Link> (i.e. every top-level page: HomePage, MatchPage, the
+// player page, NotFoundPage) should call this once on mount:
 //
 //   useEffect(markPageArrived, [markPageArrived]);
 //
 // so app/loading.tsx knows the navigation that led here has actually finished, not just that Next
 // has started rendering something for the route. Safe to call even when the page was reached by a
-// fresh/cold navigation (no in-flight `navigate()` call) — it's just a no-op in that case, since
+// fresh/cold navigation (no in-flight navigation at all) — it's just a no-op in that case, since
 // `navigating` was already false.
 export function useMarkPageArrived() {
-  return useContext(MarkArrivedContext);
+  const setNavigating = useContext(SetNavigatingContext);
+  return useCallback(() => setNavigating(false), [setNavigating]);
 }
 
 export function useNavigating() {

@@ -1,6 +1,7 @@
+import Link from 'next/link';
 import type { Stream } from '../../types';
 import { languageTag } from '../../lib/streamGroups';
-import { useNavigate } from '../../lib/navigation';
+import { useMarkNavigating } from '../../lib/navigation';
 
 const QUALITY_BADGE_STYLE: Record<string, string> = {
   HD: 'bg-green-500 text-black',
@@ -16,7 +17,7 @@ export function StreamSourceList({
   matchId: string;
   selectedStreamId?: string;
 }) {
-  const navigate = useNavigate();
+  const markNavigating = useMarkNavigating();
   return (
     <div className="grid gap-1">
       {groups.map((group) => (
@@ -29,10 +30,11 @@ export function StreamSourceList({
             {group.streams.map((stream, index) => {
               const isSelected = stream.id === selectedStreamId;
               return (
-                <button
+                <Link
                   key={stream.id}
+                  href={`/match/${encodeURIComponent(matchId)}/stream/${encodeURIComponent(stream.id)}`}
+                  onClick={markNavigating}
                   className={`w-full flex items-center justify-between gap-3 px-4 py-3 border-t border-brand-border first:border-t-0 transition-colors cursor-pointer text-left ${isSelected ? 'bg-white/10' : 'hover:bg-white/5'}`}
-                  onClick={() => navigate(`/match/${encodeURIComponent(matchId)}/stream/${encodeURIComponent(stream.id)}`)}
                 >
                   <span className="flex items-center gap-3 min-w-0">
                     <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${QUALITY_BADGE_STYLE[group.quality] || 'bg-gray-600 text-white'}`}>
@@ -51,7 +53,7 @@ export function StreamSourceList({
                     </span>
                   </span>
                   <span className="text-xs text-gray-500 font-medium">{languageTag(stream.language)}</span>
-                </button>
+                </Link>
               );
             })}
           </div>

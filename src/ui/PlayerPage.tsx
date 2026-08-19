@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
+import Link from 'next/link';
 import { getMatchDetails, getStreams } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
-import { useMarkPageArrived, useNavigate } from '../lib/navigation';
+import { useMarkNavigating, useMarkPageArrived } from '../lib/navigation';
 import type { Match, Stream } from '../types';
 import { ErrorBlock } from '../components/common/ErrorBlock';
 import { EmptyState } from '../components/common/EmptyState';
@@ -43,7 +44,7 @@ export function PlayerPage({ matchId, streamId, initialMatch, initialStreams }: 
 }
 
 function VideoPlayer({ stream, matchId }: { stream: Stream; matchId: string }) {
-  const navigate = useNavigate();
+  const markNavigating = useMarkNavigating();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState('');
 
@@ -88,7 +89,9 @@ function VideoPlayer({ stream, matchId }: { stream: Stream; matchId: string }) {
       {error && (
         <div className="absolute inset-0 z-10 grid place-content-center gap-3 p-5 bg-black/90 text-center" role="alert">
           <p>{error}</p>
-          <button className="px-4 py-2 rounded bg-white text-black font-bold cursor-pointer" onClick={() => navigate(`/match/${matchId}`)}>Try another stream</button>
+          <Link href={`/match/${matchId}`} onClick={markNavigating} className="inline-block px-4 py-2 rounded bg-white text-black font-bold cursor-pointer">
+            Try another stream
+          </Link>
         </div>
       )}
       <video className="w-full h-full border-0 block bg-black" ref={videoRef} controls playsInline onError={() => setError('This stream could not be played.')} />

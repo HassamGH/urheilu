@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import type { Match } from '../../types';
-import { useNavigate } from '../../lib/navigation';
+import { useMarkNavigating } from '../../lib/navigation';
 import { formatMatchSchedule, teamInitial } from '../../lib/matchFormatting';
 import { useDragScroll } from '../../lib/useDragScroll';
 import { TeamLogo } from './TeamLogo';
@@ -42,7 +43,7 @@ function animateScrollTo(el: HTMLElement, target: number, duration = SLIDE_DURAT
 }
 
 function FeaturedSlide({ match, priority }: { match: Match; priority: boolean }) {
-  const navigate = useNavigate();
+  const markNavigating = useMarkNavigating();
   const label = match.isLive ? 'Live Now' : 'Featured';
   // `status` is a raw API code ("in", "live") rather than display text, so it's only worth showing
   // when the feed gives us something more descriptive than that.
@@ -109,14 +110,15 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
             Not Started Yet
           </button>
         ) : (
-          <button
+          <Link
+            href={`/match/${encodeURIComponent(match.id)}`}
             aria-label={`Watch ${match.title}`}
-            onClick={() => navigate(`/match/${encodeURIComponent(match.id)}`)}
+            onClick={markNavigating}
             className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 font-bold px-5 py-3 rounded-sm transition-all duration-200 bg-white hover:bg-gray-200 hover:-translate-y-px text-black cursor-pointer"
           >
             <span className="material-symbols-outlined text-base">play_arrow</span>
             Watch Now
-          </button>
+          </Link>
         )}
       </div>
     </div>
