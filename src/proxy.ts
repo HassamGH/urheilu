@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 
-// No allowlist of "public" paths (static assets, favicon, etc.) — unlike a client-side gate,
-// HTTP Basic Auth is enforced by the browser itself before it renders or requests ANYTHING for
-// the page, so there's no chicken-and-egg problem to work around by leaving some paths open.
-// Every request to every path, including /api/watchfooty/*, must carry valid credentials.
-export const config = { matcher: '/:path*' };
+// Everything requires valid credentials EXCEPT a small set of purely public, non-sensitive static
+// assets — manifest.webmanifest, sw.js, favicon.svg, icons/* — that a browser fetches outside the
+// normal page-load flow (the <link rel="manifest"> probe, service worker registration) and doesn't
+// reliably attach its cached Basic Auth credentials to the way it does for ordinary subresource
+// requests, which was surfacing as spurious 401s and could silently break service worker
+// registration entirely. None of these leak anything: the actual app and every /api/* data
+// endpoint (including /api/watchfooty/* and /api/matches) stay fully gated below.
+export const config = {
+  matcher: ['/((?!manifest\\.webmanifest$|favicon\\.svg$|sw\\.js$|icons/).*)']
+};
 
 const REALM = 'Urheilu';
 

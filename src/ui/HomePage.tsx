@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getMatches, getMatchesForSports, getFeaturedMatches } from '../api/watchfooty';
+import { getMatchesForHomePage, getFeaturedMatches } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
 import type { Match } from '../types';
 import { Header } from '../components/layout/Header';
@@ -12,7 +12,6 @@ import { MatchesByDate } from '../components/home/MatchesByDate';
 import { ErrorBlock } from '../components/common/ErrorBlock';
 import { EmptyState } from '../components/common/EmptyState';
 import { TopLoader } from '../components/common/TopLoader';
-import { SHOWN_SPORT_SLUGS } from '../lib/sports';
 import { sportFilterHref } from '../lib/navigation';
 import { orderFeaturedMatches } from '../lib/featuredMatch';
 import { sortMatches } from '../lib/sortMatches';
@@ -45,7 +44,7 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
   }, []);
 
   const matches = useAsync(
-    (signal) => (sport === 'all' ? getMatchesForSports(SHOWN_SPORT_SLUGS, signal) : getMatches(sport, signal)),
+    (signal) => getMatchesForHomePage(sport, signal),
     [sport],
     !sportEverChangedRef.current && sport === initialSport ? initialMatches : undefined
   );

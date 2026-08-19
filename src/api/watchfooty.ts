@@ -13,10 +13,10 @@ import { SHOWN_SPORT_SLUGS } from '../lib/sports';
 import { getStreamedFallbackStreams, toStreamedSport, dropPosterlessFightingMatches } from './streamed';
 import { correctCricketMatchTimes, warmCricinfoCache } from './cricinfo';
 
-// Client-side calls stay relative, routed through the `/api/watchfooty/*` Vercel rewrite proxy (see
-// vercel.json) — unchanged from before. Server Components have no implicit origin to resolve a
-// relative fetch() against, and since CORS is a browser-only concern anyway, server-side calls skip
-// the proxy entirely and hit WatchFooty's upstream API directly.
+// Client-side calls stay relative, routed through the `/api/watchfooty/*` rewrite (see
+// next.config.js). Server Components have no implicit origin to resolve a relative fetch()
+// against, and since CORS is a browser-only concern anyway, server-side calls skip the proxy
+// entirely and hit WatchFooty's upstream API directly.
 const API_BASE = typeof window === 'undefined' ? 'https://api.watchfooty.st/api/v1' : '/api/watchfooty';
 
 // Image/logo assets are served from WatchFooty's own Cloudflare-fronted origin with
@@ -286,6 +286,18 @@ export async function getMatchesForSports(sports: string[], signal?: AbortSignal
   const corrected = await correctCricketMatchTimes(matches, signal);
   const withPosters = await dropPosterlessFightingMatches(corrected);
   return applyListingFilters(withPosters);
+}
+
+// The browser-side counterpart to getMatches/getMatchesForSports, used for every CLIENT-driven
+// listing fetch (sport-filter switching, the 90s poll/retry) — instead of running the full
+// fetch-8-large-upstream-requests-then-filter pipeline itself, it hits our own cached route
+// (src/app/api/matches/route.ts), which does that work at most once per revalidation window and
+// shares the result across every visitor. The Server Component page (src/app/page.tsx) still calls
+// getMatches/getMatchesForSports directly for the initial SSR — this is purely a client-side path.
+export async function getMatchesForHomePage(sport: string, signal?: AbortSignal): Promise<Match[]> {
+  const response = await fetch(`/api/matches?sport=${encodeURIComponent(sport)}`, { signal });
+  if (!response.ok) throw new Error(`Matches request failed: ${response.status}`);
+  return response.json() as Promise<Match[]>;
 }
 
 export async function getPopularMatches(date?: string, signal?: AbortSignal) {

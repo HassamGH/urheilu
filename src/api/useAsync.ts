@@ -20,7 +20,9 @@ export function useAsync<T>(loader: (signal: AbortSignal) => Promise<T>, deps: u
     setLoading(true);
     setError(null);
     loader(controller.signal)
-      .then((value) => setData(value))
+      .then((value) => {
+        if (!controller.signal.aborted) setData(value);
+      })
       .catch((err: Error) => {
         if (!controller.signal.aborted) setError(err);
       })
