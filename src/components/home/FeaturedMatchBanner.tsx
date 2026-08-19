@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Match } from '../../types';
 import { navigate } from '../../lib/navigation';
 import { formatMatchSchedule, teamInitial } from '../../lib/matchFormatting';
@@ -15,10 +15,16 @@ const SLIDE_DURATION_MS = 900;
 // CSS scroll-snap has to be switched off for the duration too: with it left on, the browser snaps
 // `el.scrollLeft` straight to the target the moment it drifts near a snap point, cutting the tween
 // short — it's handed back once the animation finishes, so drag-release snapping still works.
-function animateScrollTo(el: HTMLElement, target: number, duration = SLIDE_DURATION_MS) {
+// `onDone` fires once the animation actually lands — the looping logic below uses it to make the
+// clone-slide-to-real-slide handoff (see FeaturedMatchBanner) invisible: the jump happens the
+// instant the eased motion stops, not on some separate timer that could drift out of sync with it.
+function animateScrollTo(el: HTMLElement, target: number, duration = SLIDE_DURATION_MS, onDone?: () => void) {
   const start = el.scrollLeft;
   const change = target - start;
-  if (change === 0) return;
+  if (change === 0) {
+    onDone?.();
+    return;
+  }
   el.style.scrollSnapType = 'none';
   const startTime = performance.now();
   function step(now: number) {
@@ -29,6 +35,7 @@ function animateScrollTo(el: HTMLElement, target: number, duration = SLIDE_DURAT
       requestAnimationFrame(step);
     } else {
       el.style.scrollSnapType = '';
+      onDone?.();
     }
   }
   requestAnimationFrame(step);
@@ -40,6 +47,10 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
   // when the feed gives us something more descriptive than that.
   const isGenericStatus = !match.status || ['in', 'live'].includes(match.status.toLowerCase());
   const schedule = match.isLive ? (isGenericStatus ? 'In progress' : match.status) : formatMatchSchedule(match.startTime);
+  // Kickoff hasn't happened yet — nothing to watch, so the slide shouldn't read as clickable. A
+  // finished-but-no-longer-live match (startTime in the past) is left enabled; only a genuinely
+  // future kickoff disables it.
+  const notYetStarted = !match.isLive && Boolean(match.startTime) && new Date(match.startTime!).getTime() > Date.now();
 
   return (
     <div className="relative w-full h-full shrink-0 snap-center overflow-hidden bg-black">
@@ -57,11 +68,10 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
       <div className="absolute inset-0 bg-linear-to-t from-black via-black/80 to-black/30" />
       <div className="absolute inset-0 bg-linear-to-r from-black via-black/40 to-transparent" />
 
-      <button
-        aria-label={`Watch ${match.title}`}
-        className="relative z-10 w-full h-full px-5 md:px-12 py-8 md:py-10 text-left flex flex-col justify-end cursor-pointer group"
-        onClick={() => navigate(`/match/${encodeURIComponent(match.id)}`)}
-      >
+      {/* Plain content, not a link/button — the poster, teams, and title are just what this slide
+          is about, not an affordance to click. The only actionable control is the CTA button
+          below, so that's the only place a click does anything. */}
+      <div className="relative z-10 w-full h-full px-5 md:px-12 py-8 md:py-10 flex flex-col justify-end">
         <div className="flex shrink-0 items-center gap-4 md:gap-6 mb-6">
           <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} priority={priority} />
           <MatchupDivider match={match} size="lg" priority={priority} />
@@ -85,34 +95,72 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
 
         <h2 className="mt-2 shrink-0 text-3xl md:text-5xl font-black text-white max-w-3xl leading-tight">{match.title}</h2>
 
-        <div className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 bg-white group-hover:bg-gray-200 group-hover:-translate-y-px text-black font-bold px-5 py-3 rounded-sm transition-all duration-200">
-          <span className="material-symbols-outlined text-base">play_arrow</span>
-          Watch Now
-        </div>
-      </button>
+        {notYetStarted ? (
+          // Deliberately not the same solid-white treatment as the live CTA below — an outlined,
+          // translucent pill reads as "here's the status" rather than a live button that merely
+          // failed to look pressable.
+          <button
+            aria-label={`${match.title} has not started yet`}
+            disabled
+            className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 font-bold px-5 py-3 rounded-sm border border-white/25 bg-black/30 text-gray-300 backdrop-blur-sm cursor-not-allowed"
+          >
+            <span className="material-symbols-outlined text-base">schedule</span>
+            Not Started Yet
+          </button>
+        ) : (
+          <button
+            aria-label={`Watch ${match.title}`}
+            onClick={() => navigate(`/match/${encodeURIComponent(match.id)}`)}
+            className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 font-bold px-5 py-3 rounded-sm transition-all duration-200 bg-white hover:bg-gray-200 hover:-translate-y-px text-black cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-base">play_arrow</span>
+            Watch Now
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
 export function FeaturedMatchBanner({ matches }: { matches: Match[] }) {
-  // Every release gets its own eased animation to the nearest slide (or, past the overscroll
-  // threshold, a wraparound to the first/last one) instead of leaving the browser's native
-  // snap-back to jump there instantly — that's what made a manual drag feel "snappy" no matter
-  // where mid-drag it was released.
+  // A true loop, not a "scroll back to the start" — one clone of the last match is prepended and
+  // one clone of the first is appended, so sliding off either real end lands on a slide that looks
+  // identical to the opposite real end. Once that clone settles into view, the scroll position is
+  // silently reset (no animation, so it's invisible) to the equivalent real slide, which is what
+  // makes going from last to first read as one continuous forward motion instead of an animated
+  // rewind back through every slide in between.
+  const canLoop = matches.length > 1;
+  const extended = canLoop ? [matches[matches.length - 1], ...matches, matches[0]] : matches;
+  // Real slide `i` lives at `i + 1` in `extended` once a leading clone is prepended.
+  const toExtendedIndex = (realIndex: number) => (canLoop ? realIndex + 1 : realIndex);
+  const lastExtendedIndex = extended.length - 1;
+
   const drag = useDragScroll<HTMLDivElement>({
-    onDragEnd: (overscroll, el) => {
-      if (overscroll !== 0) {
-        const nextIndex = overscroll === 1 ? 0 : matches.length - 1;
-        animateScrollTo(el, nextIndex * el.clientWidth);
-        return;
-      }
+    onDragEnd: (_overscroll, el) => {
+      // The clone slides already give the drag somewhere to land past either real end (the browser
+      // clamps `scrollLeft` there on its own), so a plain "snap to nearest" is always the right
+      // settle target — no separate overscroll-threshold branch needed anymore. Only landing
+      // exactly ON a clone needs the extra silent jump back to its real counterpart afterward, so
+      // there's still a clone to drag onto if the viewer keeps going the same direction.
       const nearest = Math.round(el.scrollLeft / el.clientWidth);
-      animateScrollTo(el, nearest * el.clientWidth);
+      animateScrollTo(el, nearest * el.clientWidth, SLIDE_DURATION_MS, () => {
+        if (!canLoop) return;
+        if (nearest === 0) el.scrollLeft = matches.length * el.clientWidth;
+        else if (nearest === lastExtendedIndex) el.scrollLeft = 1 * el.clientWidth;
+      });
     }
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const isDraggingRef = useRef(false);
   isDraggingRef.current = drag.isDragging;
+
+  // Land on the first real slide (not the leading clone at position 0) before anything is visible —
+  // a layout effect so it happens before paint, with no flash of the clone slide first.
+  useLayoutEffect(() => {
+    const el = drag.ref.current;
+    if (el && canLoop) el.scrollLeft = el.clientWidth;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-advance through the slides on a timer, pausing while the viewer is actively dragging so
   // it doesn't fight their gesture.
@@ -123,18 +171,22 @@ export function FeaturedMatchBanner({ matches }: { matches: Match[] }) {
       const el = drag.ref.current;
       if (!el || el.clientWidth === 0) return;
       const current = Math.round(el.scrollLeft / el.clientWidth);
-      const next = (current + 1) % matches.length;
-      animateScrollTo(el, next * el.clientWidth);
+      const next = current + 1;
+      animateScrollTo(el, next * el.clientWidth, SLIDE_DURATION_MS, () => {
+        if (canLoop && next === lastExtendedIndex) el.scrollLeft = 1 * el.clientWidth;
+      });
     }, AUTO_ADVANCE_MS);
     return () => window.clearInterval(timer);
-  }, [matches.length, drag.ref]);
+  }, [matches.length, drag.ref, canLoop, lastExtendedIndex]);
 
   if (matches.length === 0) return null;
 
   const onScroll = () => {
     const el = drag.ref.current;
     if (!el || el.clientWidth === 0) return;
-    setActiveIndex(Math.round(el.scrollLeft / el.clientWidth));
+    const extendedIndex = Math.round(el.scrollLeft / el.clientWidth);
+    const realIndex = canLoop ? (((extendedIndex - 1) % matches.length) + matches.length) % matches.length : extendedIndex;
+    setActiveIndex(realIndex);
   };
 
   return (
@@ -149,9 +201,12 @@ export function FeaturedMatchBanner({ matches }: { matches: Match[] }) {
         onClickCapture={drag.onClickCapture}
         onScroll={onScroll}
       >
-        {matches.map((match, index) => (
-          <FeaturedSlide key={match.id} match={match} priority={index === 0} />
-        ))}
+        {extended.map((match, index) => {
+          const isLeadingClone = canLoop && index === 0;
+          const isTrailingClone = canLoop && index === lastExtendedIndex;
+          const key = isLeadingClone ? `clone-start-${match.id}` : isTrailingClone ? `clone-end-${match.id}` : match.id;
+          return <FeaturedSlide key={key} match={match} priority={index === toExtendedIndex(0)} />;
+        })}
       </div>
       {matches.length > 1 && <ScrollEdgeFade subtle />}
 
@@ -163,7 +218,7 @@ export function FeaturedMatchBanner({ matches }: { matches: Match[] }) {
               aria-label={`Go to featured match ${index + 1}`}
               onClick={() => {
                 const el = drag.ref.current;
-                if (el) animateScrollTo(el, index * el.clientWidth);
+                if (el) animateScrollTo(el, toExtendedIndex(index) * el.clientWidth);
               }}
               className={`h-1.5 rounded-full transition-all cursor-pointer ${index === activeIndex ? 'w-6 bg-brand-live' : 'w-1.5 bg-white/30'}`}
             />

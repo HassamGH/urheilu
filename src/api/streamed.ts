@@ -1,4 +1,4 @@
-import type { Stream } from '../types';
+import type { Match, Stream } from '../types';
 
 const STREAMED_BASE = 'https://streamed.pk';
 
@@ -134,6 +134,44 @@ export async function getStreamedFightPoster(title: string): Promise<string | un
   const matches = await getStreamedFightMatches();
   const found = matches.find((match) => match.poster && normalizeFightTitle(match.title) === target);
   return found?.poster ? `${STREAMED_BASE}${found.poster}` : undefined;
+}
+
+// `match.poster` being set doesn't mean much on its own — per the comment above, WatchFooty's own
+// poster asset 500s for most individual fight-card bouts even though the URL is present in the API
+// response, so a field-presence check alone would barely drop anything (confirmed against a live
+// week of fight cards: the field was set on all of them, but ~70% actually 404/500 when fetched).
+// A HEAD request is the only way to know if it actually resolves, matching what MatchCard's own
+// `onError` handler discovers at render time.
+async function posterUrlWorks(url?: string): Promise<boolean> {
+  if (!url) return false;
+  try {
+    const response = await fetch(url, { method: 'HEAD' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Fighting cards with no WORKING poster from either source read as an unfinished/junk listing (see
+// MatchCard, which already falls back through the exact same two sources for what it renders) —
+// rather than let those reach the UI as a bare branded-poster card, they're dropped from the
+// listing entirely. Only matches whose own poster fails ever need the streamed.pk fallback lookup,
+// and every one of those shares the one cached streamed.pk fetch (see getStreamedFightMatches), so
+// checking N of them costs the same one request as checking one.
+export async function dropPosterlessFightingMatches<T extends Match>(matches: T[]): Promise<T[]> {
+  const fighting = matches.filter((match) => match.sportId === 'fighting');
+  if (fighting.length === 0) return matches;
+
+  const ownPosterWorks = await Promise.all(fighting.map((match) => posterUrlWorks(match.poster)));
+  const needsFallback = fighting.filter((_, index) => !ownPosterWorks[index]);
+  const fallbackPosters = await Promise.all(needsFallback.map((match) => getStreamedFightPoster(match.title).catch(() => undefined)));
+  const fallbackById = new Map(needsFallback.map((match, index) => [match.id, fallbackPosters[index]]));
+
+  const dropIds = new Set(
+    fighting.filter((match, index) => !ownPosterWorks[index] && !fallbackById.get(match.id)).map((match) => match.id)
+  );
+  if (dropIds.size === 0) return matches;
+  return matches.filter((match) => !dropIds.has(match.id));
 }
 
 let racingMatchesPromise: Promise<RawStreamedMatch[]> | null = null;

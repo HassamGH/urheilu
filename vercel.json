@@ -5,7 +5,7 @@
       "destination": "https://api.watchfooty.st/api/v1/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]

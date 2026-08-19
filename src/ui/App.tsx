@@ -1,15 +1,22 @@
-import { useEffect, useState } from 'react';
-import { getMatchDetails, getStreams, getMatches, getMatchesForSports } from '../api/watchfooty';
+import { Suspense, lazy, useEffect, useState } from 'react';
+import { getMatchDetails, getStreams, getMatches, getMatchesForSports, getFeaturedMatches } from '../api/watchfooty';
 import type { Match, Stream } from '../types';
 import { MatchPage } from './MatchPage';
-import { PlayerPage } from './PlayerPage';
 import { HomePage } from './HomePage';
 import { NotFoundPage } from './NotFoundPage';
 import { TopLoader } from '../components/common/TopLoader';
+import { AppLoadingScreen } from '../components/common/AppLoadingScreen';
 import { SHOWN_SPORT_SLUGS } from '../lib/sports';
 import { getSportFromLocation } from '../lib/navigation';
 
-type RouteData = { match?: Match; streams?: Stream[]; matches?: Match[] };
+// hls.js (pulled in by PlayerPage) is the single heaviest dependency in the app but only ever
+// needed once a viewer actually opens a stream — split out of the main bundle so every other page
+// (home, match list, browsing) never has to download or parse it. The import is kicked off
+// alongside the data preload below (not only at render time) so the chunk and the match/stream
+// data arrive together instead of the chunk load being a second, later waterfall step.
+const PlayerPage = lazy(() => import('./PlayerPage').then((module) => ({ default: module.PlayerPage })));
+
+type RouteData = { match?: Match; streams?: Stream[]; matches?: Match[]; featured?: Match[] };
 
 async function preloadRoute(path: string, signal: AbortSignal): Promise<RouteData> {
   const [pathname, search] = path.split('?');
@@ -18,6 +25,7 @@ async function preloadRoute(path: string, signal: AbortSignal): Promise<RouteDat
   const matchId = streamMatch?.[1] || matchMatch?.[1];
 
   if (matchId) {
+    if (streamMatch) void import('./PlayerPage');
     const match = await getMatchDetails(decodeURIComponent(matchId), signal);
     const streams = await getStreams(decodeURIComponent(matchId), match.sportId, signal);
     return { match, streams };
@@ -25,8 +33,14 @@ async function preloadRoute(path: string, signal: AbortSignal): Promise<RouteDat
 
   if (pathname === '/') {
     const sport = new URLSearchParams(search || '').get('sport') || 'all';
-    const matches = sport === 'all' ? await getMatchesForSports(SHOWN_SPORT_SLUGS, signal) : await getMatches(sport, signal);
-    return { matches };
+    // Featured banner data is fetched alongside the match list here (not left to HomePage's own
+    // effect) so the preload gate below — and the same gate on every later sport-filter switch —
+    // waits for both together, instead of the banner popping in a beat after the rest of the page.
+    const [matches, featured] = await Promise.all([
+      sport === 'all' ? getMatchesForSports(SHOWN_SPORT_SLUGS, signal) : getMatches(sport, signal),
+      getFeaturedMatches(signal)
+    ]);
+    return { matches, featured };
   }
 
   return {};
@@ -36,6 +50,28 @@ export function App() {
   const [path, setPath] = useState(window.location.pathname);
   const [routeData, setRouteData] = useState<RouteData>({});
   const [routeLoading, setRouteLoading] = useState(false);
+  // Gates the very first paint: nothing renders until the initial route's data has fully loaded in
+  // the background, same as every later navigation already waits on `preloadRoute` before swapping
+  // — a hard refresh (or the very first visit) shouldn't behave any differently and show a
+  // half-loaded page while the rest streams in behind it.
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    preloadRoute(`${window.location.pathname}${window.location.search}`, controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setRouteData(data);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setRouteData({});
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setInitialLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     let controller: AbortController | null = null;
@@ -126,11 +162,20 @@ export function App() {
   const streamMatch = path.match(/^\/match\/([^/]+)\/stream\/([^/]+)$/);
   const matchMatch = path.match(/^\/match\/([^/]+)$/);
 
+  if (initialLoading) return <AppLoadingScreen />;
+
   return (
     <>
       <TopLoader loading={routeLoading} />
-      {path === '/' && <HomePage sport={getSportFromLocation()} initialMatches={routeData.matches} />}
-      {streamMatch && <PlayerPage matchId={decodeURIComponent(streamMatch[1])} streamId={decodeURIComponent(streamMatch[2])} initialMatch={routeData.match} initialStreams={routeData.streams} />}
+      {path === '/' && <HomePage sport={getSportFromLocation()} initialMatches={routeData.matches} initialFeatured={routeData.featured} />}
+      {streamMatch && (
+        // Same fallback PlayerPage itself shows while its own data is still resolving (see
+        // `if (!selected) return <div className="fixed inset-0 bg-black" />` there) — so on the
+        // rare cold-cache load where the chunk isn't already fetched, there's no visible change.
+        <Suspense fallback={<div className="fixed inset-0 bg-black" />}>
+          <PlayerPage matchId={decodeURIComponent(streamMatch[1])} streamId={decodeURIComponent(streamMatch[2])} initialMatch={routeData.match} initialStreams={routeData.streams} />
+        </Suspense>
+      )}
       {matchMatch && <MatchPage matchId={decodeURIComponent(matchMatch[1])} initialMatch={routeData.match} initialStreams={routeData.streams} />}
       {path !== '/' && !streamMatch && !matchMatch && <NotFoundPage />}
     </>

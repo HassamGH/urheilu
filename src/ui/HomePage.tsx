@@ -20,7 +20,7 @@ const REFRESH_INTERVAL_MS = 90000;
 // `sport` is a controlled prop (App derives it from the URL) rather than state HomePage tracks
 // itself — App's navigate preload swaps the URL and the matching data together without firing a
 // popstate event, so a self-managed popstate listener here would go stale the moment that happens.
-export function HomePage({ sport, initialMatches }: { sport: string; initialMatches?: Match[] }) {
+export function HomePage({ sport, initialMatches, initialFeatured }: { sport: string; initialMatches?: Match[]; initialFeatured?: Match[] }) {
   const matches = useAsync(
     (signal) => (sport === 'all' ? getMatchesForSports(SHOWN_SPORT_SLUGS, signal) : getMatches(sport, signal)),
     [sport],
@@ -30,7 +30,7 @@ export function HomePage({ sport, initialMatches }: { sport: string; initialMatc
   // Independent of the sport filter — the banner always surfaces the same cross-sport popular/live
   // picks regardless of which rail is currently shown, via the dedicated popular endpoints rather
   // than picking whatever happens to sort first in the filtered listing.
-  const featured = useAsync((signal) => getFeaturedMatches(signal), []);
+  const featured = useAsync((signal) => getFeaturedMatches(signal), [], initialFeatured);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

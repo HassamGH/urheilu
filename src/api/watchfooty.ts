@@ -10,9 +10,18 @@ import { isAmateurMatch } from '../lib/excludeAmateur';
 import { isPlayoffMatch } from '../lib/excludePlayoffs';
 import { dateParam } from '../lib/dateParams';
 import { SHOWN_SPORT_SLUGS } from '../lib/sports';
-import { getStreamedFallbackStreams, toStreamedSport } from './streamed';
+import { getStreamedFallbackStreams, toStreamedSport, dropPosterlessFightingMatches } from './streamed';
+import { correctCricketMatchTimes, warmCricinfoCache } from './cricinfo';
 
 const API_BASE = '/api/watchfooty';
+
+// Image/logo assets are served from WatchFooty's own Cloudflare-fronted origin with
+// `access-control-allow-origin: *` and long-lived `Cache-Control` (a year for logos, hours for
+// posters) already set — routing them through our `/api/watchfooty` proxy would strip none of
+// that but adds a pointless extra hop (and the Basic Auth middleware check) on every single image
+// a page loads. Pointing `<img>` tags straight at the origin lets the browser hit its CDN directly
+// and reuse its own HTTP cache across matches that share a team/league logo.
+const ASSET_ORIGIN = 'https://api.watchfooty.st';
 
 type RawSport = {
   name?: string;
@@ -63,7 +72,7 @@ async function requestJson<T>(path: string, signal?: AbortSignal): Promise<T> {
 function absoluteAsset(url?: string) {
   if (!url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
-  return `${API_BASE}${url.replace(/^\/api\/v1/, '')}`;
+  return `${ASSET_ORIGIN}${url}`;
 }
 
 function streamType(url: string): Stream['type'] {
@@ -252,30 +261,49 @@ async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offs
 const SPORT_PAGE_DATE_OFFSETS = [-1, 0, 1, 2, 3, 4, 5, 6];
 
 export async function getMatches(sport = 'all', signal?: AbortSignal) {
+  // Kicked off before awaiting WatchFooty below (rather than left to correctCricketMatchTimes to
+  // discover afterward) so the ESPN and WatchFooty requests run concurrently instead of back to
+  // back — for a cricket-inclusive listing this was previously doubling the wait, since
+  // correctCricketMatchTimes only ever started its fetch once WatchFooty's had already finished.
+  if (sport === 'all' || sport === 'cricket') warmCricinfoCache(signal);
   const raw = await fetchRawMatchesForSport(sport, signal, SPORT_PAGE_DATE_OFFSETS);
   const matches = dedupeMatches(raw.map((item) => normalizeMatch(item)).filter(Boolean) as Match[]);
-  return applyListingFilters(matches, { windowDays: 7 });
+  const corrected = await correctCricketMatchTimes(matches, signal);
+  const withPosters = await dropPosterlessFightingMatches(corrected);
+  return applyListingFilters(withPosters, { windowDays: 7 });
 }
 
 // Fetches only the given sports (in parallel) instead of the combined `/matches/all` endpoint,
 // so sports we don't want to show are never requested in the first place.
 export async function getMatchesForSports(sports: string[], signal?: AbortSignal) {
+  if (sports.includes('cricket')) warmCricinfoCache(signal);
   const results = await Promise.all(sports.map((sport) => fetchRawMatchesForSport(sport, signal)));
   const matches = dedupeMatches(results.flat().map((item) => normalizeMatch(item)).filter(Boolean) as Match[]);
-  return applyListingFilters(matches);
+  const corrected = await correctCricketMatchTimes(matches, signal);
+  const withPosters = await dropPosterlessFightingMatches(corrected);
+  return applyListingFilters(withPosters);
 }
 
 export async function getPopularMatches(date?: string, signal?: AbortSignal) {
+  // Unlike getMatches/getMatchesForSports, this endpoint spans every sport with no per-sport
+  // param to check ahead of time — warmed unconditionally since it's a cached, cheap no-op for
+  // callers that turn out to have no cricket in the results.
+  warmCricinfoCache(signal);
   const query = date ? `?date=${date}` : '';
   const data = await requestJson<RawMatch[]>(`/matches/popular${query}`, signal);
   const matches = data.map((item) => normalizeMatch(item)).filter(Boolean) as Match[];
-  return applyListingFilters(matches, { allowStaleLiveOutsideWindow: false });
+  const corrected = await correctCricketMatchTimes(matches, signal);
+  const withPosters = await dropPosterlessFightingMatches(corrected);
+  return applyListingFilters(withPosters, { allowStaleLiveOutsideWindow: false });
 }
 
 export async function getPopularLiveMatches(signal?: AbortSignal) {
+  warmCricinfoCache(signal);
   const data = await requestJson<RawMatch[]>('/matches/popular/live', signal);
   const matches = data.map((item) => normalizeMatch(item)).filter(Boolean) as Match[];
-  return applyListingFilters(matches, { allowStaleLiveOutsideWindow: false });
+  const corrected = await correctCricketMatchTimes(matches, signal);
+  const withPosters = await dropPosterlessFightingMatches(corrected);
+  return applyListingFilters(withPosters, { allowStaleLiveOutsideWindow: false });
 }
 
 // The `/matches/popular*` endpoints span every sport the API has (14, including ones this site
@@ -305,7 +333,10 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
     const data = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
     const raw = Array.isArray(data) ? data[0] : data;
     const match = raw && normalizeMatchDetails(raw, matchId);
-    if (match) return correctStaleLiveCricket(match) as MatchDetails;
+    if (match) {
+      const [corrected] = await correctCricketMatchTimes([match], signal);
+      return correctStaleLiveCricket(corrected) as MatchDetails;
+    }
   } catch {
     // fall through to the listing-based lookup below
   }
@@ -314,7 +345,8 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
   const raw = listing.find((item) => (item.matchId || item.id) === matchId);
   const match = raw && normalizeMatchDetails(raw, matchId);
   if (!match) throw new Error('Match not found');
-  return correctStaleLiveCricket(match) as MatchDetails;
+  const [corrected] = await correctCricketMatchTimes([match], signal);
+  return correctStaleLiveCricket(corrected) as MatchDetails;
 }
 
 export async function getStreams(matchId: string, sportId?: string, signal?: AbortSignal) {
