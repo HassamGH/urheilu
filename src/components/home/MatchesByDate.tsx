@@ -18,7 +18,7 @@ function DayRail({ group }: { group: DateGroup }) {
       <div className="flex-1 min-w-0 relative">
         <div
           ref={drag.ref}
-          className={`flex gap-4 overflow-x-auto hide-scrollbar pb-1 select-none ${drag.isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`flex gap-4 overflow-x-auto hide-scrollbar pb-1 select-none ${canScroll ? (drag.isDragging ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
           onPointerDown={drag.onPointerDown}
           onPointerMove={drag.onPointerMove}
           onPointerUp={drag.onPointerUp}

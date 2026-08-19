@@ -11,8 +11,20 @@
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<!-- The actual data/image origins the app talks to directly (see ASSET_ORIGIN in watchfooty.ts,
+     ESPN_BASE in cricinfo.ts, STREAMED_BASE in streamed.ts) — an early connection here means the
+     DNS+TLS handshake is already done by the time the first real fetch to each of them fires. -->
+<link rel="preconnect" href="https://api.watchfooty.st" crossorigin />
+<link rel="preconnect" href="https://site.web.api.espn.com" crossorigin />
+<link rel="preconnect" href="https://streamed.pk" crossorigin />
+<!-- Only the exact weight/fill instance the app actually uses (wght 400, FILL 0 — see the fixed
+     `font-weight: normal` in styles.css's .material-symbols-outlined utility and the fact FILL is
+     never varied anywhere) — the previous `100..700,0..1` range pulled the full variable font. -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0&display=swap" rel="stylesheet" />
+<!-- 800 was requested but never used anywhere (grepped for font-extrabold); 900 is used constantly
+     via font-black but was missing, so every font-black element was silently falling back to a
+     browser-synthesized (faux) bold instead of the real weight. -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
 </head>
 <body class="bg-brand-bg text-white font-sans">
 <div id="root"></div>

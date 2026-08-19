@@ -18,7 +18,7 @@ export function MatchRail({ title, matches }: { title: string; matches: Match[] 
       </div>
       <div className="relative">
         <div
-          className={`flex gap-4 overflow-x-auto hide-scrollbar pb-4 select-none ${drag.isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`flex gap-4 overflow-x-auto hide-scrollbar pb-4 select-none ${canScroll ? (drag.isDragging ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
           ref={drag.ref}
           onPointerDown={drag.onPointerDown}
           onPointerMove={drag.onPointerMove}
