@@ -1,3 +1,5 @@
+'use client';
+
 import { getMatchDetails, getStreams } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
 import type { Match, Stream } from '../types';
@@ -27,7 +29,11 @@ export function MatchPage({ matchId, initialMatch, initialStreams }: { matchId: 
                   Live
                 </span>
               )}
-              <p className="text-gray-400 text-sm">{formatMatchSchedule(match.data.startTime)}</p>
+              {/* Renders the match's local kickoff time — legitimately different between SSR
+                  (server has no viewer timezone) and hydration. */}
+              <p suppressHydrationWarning className="text-gray-400 text-sm">
+                {formatMatchSchedule(match.data.startTime)}
+              </p>
             </div>
           </div>
         )}

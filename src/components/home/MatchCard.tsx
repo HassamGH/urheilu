@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Match } from '../../types';
-import { navigate } from '../../lib/navigation';
+import { useNavigate } from '../../lib/navigation';
 import { getStreamedFightPoster, getStreamedRacingPoster } from '../../api/streamed';
 import { CARD_FALLBACK_BACKGROUNDS, hashString } from '../../lib/cardBackgrounds';
 import { compactStatus, teamInitial } from '../../lib/matchFormatting';
@@ -9,6 +9,7 @@ import { TeamLogo } from './TeamLogo';
 import { MatchupDivider } from './MatchupDivider';
 
 export function MatchCard({ match }: { match: Match }) {
+  const navigate = useNavigate();
   const fallback = CARD_FALLBACK_BACKGROUNDS[hashString(match.id) % CARD_FALLBACK_BACKGROUNDS.length];
   const [posterFailed, setPosterFailed] = useState(false);
   // Some fixtures (WWE shows, UFC contender series, etc.) have no home/away team at all — the API
@@ -72,7 +73,9 @@ export function MatchCard({ match }: { match: Match }) {
 
           <div className="absolute top-3 left-3 bg-brand-surface text-white px-2 py-1 rounded text-[10px] font-bold tracking-wide flex items-center gap-1.5 z-10 border border-brand-border">
             <span className={match.isLive ? 'w-1.5 h-1.5 rounded-full bg-brand-live animate-pulse' : 'w-1.5 h-1.5 rounded-full bg-gray-500'} />
-            {match.isLive ? 'LIVE' : compactStatus(match)}
+            {/* compactStatus renders the match's local kickoff time — legitimately different
+                between SSR (server has no viewer timezone) and hydration. */}
+            <span suppressHydrationWarning>{match.isLive ? 'LIVE' : compactStatus(match)}</span>
           </div>
           {!isEvent && !showPoster && (
             <div className="absolute inset-0 flex items-center justify-center gap-6">

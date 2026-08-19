@@ -1,7 +1,7 @@
 // Bump this to invalidate every existing cache entry on the next deploy — each visitor's `activate`
 // handler wipes any cache whose name doesn't match, so a version bump is the escape hatch if a
 // change here should never be served from what an existing client already cached.
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;
 
@@ -25,12 +25,12 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Vite-hashed build output plus the handful of root static files — every one of these has a
-// content-addressed or effectively-immutable URL, so cache-first is always safe: a change to any
-// of them means a new URL, never the same URL with different bytes.
+// Next's hashed build output (`/_next/static/*`) plus the handful of root static files — every one
+// of these has a content-addressed or effectively-immutable URL, so cache-first is always safe: a
+// change to any of them means a new URL, never the same URL with different bytes.
 function isBuildAsset(url) {
   if (url.origin !== self.location.origin) return false;
-  return url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/') || url.pathname === '/favicon.svg' || url.pathname === '/manifest.webmanifest';
+  return url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/') || url.pathname === '/favicon.svg' || url.pathname === '/manifest.webmanifest';
 }
 
 // The JSON API proxy only — NOT `/api/watchfooty/poster|team-logo|league-logo/*`, because those
@@ -92,9 +92,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation requests (index.html) and everything cross-origin (ESPN, streamed.pk, WatchFooty's
-  // own image CDN) are passed straight through, uncached. index.html especially must never be
-  // served from cache — it references this build's hashed asset filenames, and caching it risks
-  // handing a returning visitor a shell that points at files a newer deploy already removed.
+  // Navigation requests (the server-rendered HTML document for every route) and everything
+  // cross-origin (ESPN, streamed.pk, WatchFooty's own image CDN) are passed straight through,
+  // uncached. The HTML document especially must never be served from cache — each response
+  // references that build's hashed asset filenames, and caching it risks handing a returning
+  // visitor a page that points at files a newer deploy already removed.
   event.respondWith(fetch(request));
 });

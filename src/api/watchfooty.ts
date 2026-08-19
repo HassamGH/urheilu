@@ -13,7 +13,11 @@ import { SHOWN_SPORT_SLUGS } from '../lib/sports';
 import { getStreamedFallbackStreams, toStreamedSport, dropPosterlessFightingMatches } from './streamed';
 import { correctCricketMatchTimes, warmCricinfoCache } from './cricinfo';
 
-const API_BASE = '/api/watchfooty';
+// Client-side calls stay relative, routed through the `/api/watchfooty/*` Vercel rewrite proxy (see
+// vercel.json) — unchanged from before. Server Components have no implicit origin to resolve a
+// relative fetch() against, and since CORS is a browser-only concern anyway, server-side calls skip
+// the proxy entirely and hit WatchFooty's upstream API directly.
+const API_BASE = typeof window === 'undefined' ? 'https://api.watchfooty.st/api/v1' : '/api/watchfooty';
 
 // Image/logo assets are served from WatchFooty's own Cloudflare-fronted origin with
 // `access-control-allow-origin: *` and long-lived `Cache-Control` (a year for logos, hours for

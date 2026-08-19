@@ -1,4 +1,6 @@
-import { useEffect, useMemo } from 'react';
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMatches, getMatchesForSports, getFeaturedMatches } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
 import type { Match } from '../types';
@@ -11,20 +13,41 @@ import { ErrorBlock } from '../components/common/ErrorBlock';
 import { EmptyState } from '../components/common/EmptyState';
 import { TopLoader } from '../components/common/TopLoader';
 import { SHOWN_SPORT_SLUGS } from '../lib/sports';
-import { navigate, sportFilterHref } from '../lib/navigation';
+import { sportFilterHref } from '../lib/navigation';
 import { orderFeaturedMatches } from '../lib/featuredMatch';
 import { sortMatches } from '../lib/sortMatches';
 
 const REFRESH_INTERVAL_MS = 90000;
 
-// `sport` is a controlled prop (App derives it from the URL) rather than state HomePage tracks
-// itself — App's navigate preload swaps the URL and the matching data together without firing a
-// popstate event, so a self-managed popstate listener here would go stale the moment that happens.
-export function HomePage({ sport, initialMatches, initialFeatured }: { sport: string; initialMatches?: Match[]; initialFeatured?: Match[] }) {
+// `initialSport` seeds local state rather than staying a controlled prop from the URL: switching
+// the sport filter deliberately does NOT go through Next's router (that would trigger a server
+// round-trip to re-run the page's Server Component just to change which client-fetched rail is
+// shown) — it's handled entirely client-side, exactly like the 90s poll/retry already is, with the
+// URL updated cosmetically via `history.pushState` for shareability/back-button support. The
+// popstate listener below is what makes back/forward still work correctly for that cosmetic change.
+export function HomePage({ sport: initialSport, initialMatches, initialFeatured }: { sport: string; initialMatches?: Match[]; initialFeatured?: Match[] }) {
+  const [sport, setSport] = useState(initialSport);
+  // Flips permanently on the first sport change (by click or by popstate) so `initialMatches` —
+  // a snapshot from the original server render — is only ever handed to useAsync once, even if the
+  // viewer later cycles back to `initialSport`. Without this, useAsync's `refreshIndex` (which only
+  // advances on an explicit retry, never on a sport change) would treat every return trip to the
+  // original sport as "still the initial load" and reuse that now-stale snapshot instead of
+  // fetching fresh data.
+  const sportEverChangedRef = useRef(false);
+
+  useEffect(() => {
+    const onPopState = () => {
+      sportEverChangedRef.current = true;
+      setSport(new URLSearchParams(window.location.search).get('sport') || 'all');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
   const matches = useAsync(
     (signal) => (sport === 'all' ? getMatchesForSports(SHOWN_SPORT_SLUGS, signal) : getMatches(sport, signal)),
     [sport],
-    initialMatches
+    !sportEverChangedRef.current && sport === initialSport ? initialMatches : undefined
   );
 
   // Independent of the sport filter — the banner always surfaces the same cross-sport popular/live
@@ -40,7 +63,11 @@ export function HomePage({ sport, initialMatches, initialFeatured }: { sport: st
     return () => window.clearInterval(timer);
   }, [matches.retry, featured.retry]);
 
-  const handleSportChange = (slug: string) => navigate(sportFilterHref(slug));
+  const handleSportChange = (slug: string) => {
+    sportEverChangedRef.current = true;
+    window.history.pushState({}, '', sportFilterHref(slug));
+    setSport(slug);
+  };
 
   const visibleMatches = matches.data || [];
   const liveMatches = useMemo(() => sortMatches(visibleMatches.filter((match) => match.isLive)), [visibleMatches]);

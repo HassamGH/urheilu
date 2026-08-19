@@ -1,6 +1,9 @@
-import { navigate } from '../lib/navigation';
+'use client';
+
+import { useNavigate } from '../lib/navigation';
 
 export function NotFoundPage() {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-brand-bg text-white flex items-center justify-center px-4">
       <div className="text-center max-w-lg animate-pop-in">

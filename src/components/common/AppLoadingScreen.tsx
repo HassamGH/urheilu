@@ -1,8 +1,8 @@
 import { Logo } from '../layout/Logo';
 
-// Shown for the very first paint only, while the initial route's data loads in the background (see
-// App's `initialLoading` gate) — full-bleed and branded rather than a bare spinner, since it's the
-// first thing anyone sees on a cold load.
+// Rendered via app/loading.tsx — Next's automatic Suspense boundary for a route segment, shown
+// while its Server Component is fetching data (including the very first cold load). Full-bleed and
+// branded rather than a bare spinner, since it's often the first thing anyone sees.
 export function AppLoadingScreen() {
   return (
     <div className="fixed inset-0 bg-brand-bg flex flex-col items-center justify-center gap-3" role="status" aria-label="Loading">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Match } from '../../types';
-import { navigate } from '../../lib/navigation';
+import { useNavigate } from '../../lib/navigation';
 import { Logo } from './Logo';
 
 const MAX_RESULTS = 5;
@@ -8,6 +8,7 @@ const MAX_RESULTS = 5;
 // Self-contained: its own query state and its own filtered results, entirely separate from
 // whatever sport/date listing is showing on the page — it's a quick-jump popup, not a page filter.
 export function Header({ matches }: { matches: Match[] }) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);

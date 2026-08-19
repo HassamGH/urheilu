@@ -1,6 +1,6 @@
 import type { Stream } from '../../types';
 import { languageTag } from '../../lib/streamGroups';
-import { navigate } from '../../lib/navigation';
+import { useNavigate } from '../../lib/navigation';
 
 const QUALITY_BADGE_STYLE: Record<string, string> = {
   HD: 'bg-green-500 text-black',
@@ -16,6 +16,7 @@ export function StreamSourceList({
   matchId: string;
   selectedStreamId?: string;
 }) {
+  const navigate = useNavigate();
   return (
     <div className="grid gap-1">
       {groups.map((group) => (

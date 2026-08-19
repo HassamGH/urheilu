@@ -1,8 +1,10 @@
+'use client';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { getMatchDetails, getStreams } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
-import { navigate } from '../lib/navigation';
+import { useNavigate } from '../lib/navigation';
 import type { Match, Stream } from '../types';
 import { ErrorBlock } from '../components/common/ErrorBlock';
 import { EmptyState } from '../components/common/EmptyState';
@@ -34,6 +36,7 @@ export function PlayerPage({ matchId, streamId, initialMatch, initialStreams }: 
 }
 
 function VideoPlayer({ stream, matchId }: { stream: Stream; matchId: string }) {
+  const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState('');
 

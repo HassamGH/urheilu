@@ -1,4 +1,4 @@
-import { next } from '@vercel/edge';
+import { NextResponse } from 'next/server';
 
 // No allowlist of "public" paths (static assets, favicon, etc.) — unlike a client-side gate,
 // HTTP Basic Auth is enforced by the browser itself before it renders or requests ANYTHING for
@@ -41,7 +41,7 @@ function extractPassword(decoded: string): string {
   return separatorIndex === -1 ? decoded : decoded.slice(separatorIndex + 1);
 }
 
-export default async function middleware(request: Request): Promise<Response> {
+export default async function proxy(request: Request): Promise<Response> {
   const sitePassword = process.env.SITE_PASSWORD;
   if (!sitePassword) {
     // Fail closed: a misconfigured deployment must never silently let everyone through. An "auth"
@@ -63,7 +63,7 @@ export default async function middleware(request: Request): Promise<Response> {
     }
     const password = extractPassword(decoded);
     if (await timingSafeEqual(password, sitePassword)) {
-      return next();
+      return NextResponse.next();
     }
   }
 

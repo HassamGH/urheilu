@@ -26,5 +26,7 @@ export function relativeDayLabel(date: Date) {
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Tomorrow';
   if (diffDays === -1) return 'Yesterday';
-  return new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date);
+  // Pinned locale — see the comment in matchFormatting.ts for why (SSR/hydration formatting-style
+  // mismatch, not a value mismatch).
+  return new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date);
 }
