@@ -36,7 +36,6 @@ const FOOTBALL_LEAGUE_RULES: LeagueRule[] = [
   { patterns: [['super cup', 'ital'], ['supercoppa italiana']] },
   { patterns: [['international friendlies', 'uefa']] },
   { patterns: [['super cup', 'german'], ['dfl-supercup'], ['dfl supercup']] },
-  { patterns: [['club friendlies', 'uefa']] },
   { patterns: [['super cup', 'france'], ['trophee des champions'], ['trophée des champions']] },
   { patterns: [['european championship qualifiers'], ['euro', 'qualif']] },
   { patterns: [['finalissima']] },
@@ -50,9 +49,51 @@ function matchesRule(name: string, rule: LeagueRule) {
   return (rule.patterns || []).some((pattern) => pattern.every((word) => name.includes(word)));
 }
 
+// The generic "Club Friendlies" bucket has no per-match confederation/country data to filter on —
+// it's one league name covering everything from Bayern Munich's pre-season tour games down to
+// Spanish regional reserve-side kickabouts. Rather than showing all of it (way too noisy) or none
+// of it (loses genuinely notable fixtures like Barcelona vs Al Ahly), only surface it when a
+// marquee club is actually playing — checked against team names since that's the only signal
+// available. Keyed on club identity, not country, so it stays accurate regardless of who the
+// opponent is or which confederation they're from.
+const TOP_CLUB_FRIENDLY_TEAMS = [
+  'ac milan',
+  'arsenal',
+  'atletico de madrid',
+  'atletico madrid',
+  'atlético de madrid',
+  'atlético madrid',
+  'barcelona',
+  'bayern munich',
+  'bayern münchen',
+  'borussia dortmund',
+  'chelsea',
+  'fc bayern',
+  'inter milan',
+  'internazionale',
+  'juventus',
+  'liverpool',
+  'man city',
+  'man united',
+  'manchester city',
+  'manchester united',
+  'paris saint germain',
+  'paris saint-germain',
+  'psg',
+  'real madrid'
+];
+
+function isTopClubFriendlyTeam(name?: string) {
+  const value = (name || '').toLowerCase();
+  return TOP_CLUB_FRIENDLY_TEAMS.some((keyword) => value.includes(keyword));
+}
+
 export function isAllowedFootballMatch(match: Match) {
   if (match.sportId !== 'football' && match.sportId !== 'soccer') return true;
   if (!match.competition) return false;
   const name = match.competition.toLowerCase();
+  if (name.includes('club friendlies')) {
+    return isTopClubFriendlyTeam(match.homeTeam) || isTopClubFriendlyTeam(match.awayTeam);
+  }
   return FOOTBALL_LEAGUE_RULES.some((rule) => matchesRule(name, rule));
 }

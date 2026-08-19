@@ -28,6 +28,14 @@ The app proxies browser requests through Vite in development:
 
 No API key is required by WatchFooty or streamed.pk at the time of implementation. If that changes, add server-side environment variables (e.g. `WATCHFOOTY_API_URL`, `WATCHFOOTY_API_KEY`) rather than exposing secrets in client code.
 
+## Access
+
+`AuthGate` (`src/ui/AuthGate.tsx`, wraps `<App />` in `main.tsx`) blocks rendering until the shared password from `VITE_SITE_PASSWORD` is entered, then remembers that for the tab via `sessionStorage`.
+
+**This is a client-side UI deterrent only, not real access control.** `VITE_`-prefixed env vars are baked into the JS bundle at build time, so the password is readable by anyone who opens devtools — there's no server checking it. It stops the app from rendering without a password; it does **not** stop someone from calling the underlying `/api/watchfooty/*` proxy directly and getting real data, since that endpoint has no check of its own. Real protection would require a server-side check (e.g. Vercel Edge Middleware) gating both the app and the proxy — deliberately not what's implemented here.
+
+Set `VITE_SITE_PASSWORD` in `.env`/`.env.local` (see `.env.example`) or in Vercel's env vars for deployed builds.
+
 ## Routes
 
 - `/` — sport filters and current matches, grouped by date

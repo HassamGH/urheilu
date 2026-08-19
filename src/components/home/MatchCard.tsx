@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Match } from '../../types';
 import { navigate } from '../../lib/navigation';
+import { getStreamedFightPoster, getStreamedRacingPoster } from '../../api/streamed';
 import { CARD_FALLBACK_BACKGROUNDS, hashString } from '../../lib/cardBackgrounds';
 import { compactStatus, teamInitial } from '../../lib/matchFormatting';
 import { CardBackdrop } from './CardBackdrop';
@@ -17,7 +18,33 @@ export function MatchCard({ match }: { match: Match }) {
   // The API supplies a real poster for most fixtures, not just single-event cards — prefer it as
   // the backdrop over the hand-picked gradients in cardBackgrounds.ts, which are only a fallback
   // for the (usually team-vs-team) matches that have no poster at all.
-  const showPoster = Boolean(match.poster) && !posterFailed;
+  const hasOwnPoster = Boolean(match.poster) && !posterFailed;
+
+  // WatchFooty's poster asset 500s for most individual fight-card bouts and racing sessions — when
+  // that happens (or it never had one), try streamed.pk's own listing for the sport as a second,
+  // independent source before giving up and falling back to the plain gradient card. See
+  // getStreamedFightPoster / getStreamedRacingPoster.
+  const streamedPosterFetcher = match.sportId === 'fighting' ? getStreamedFightPoster : match.sportId === 'racing' ? getStreamedRacingPoster : null;
+  const [streamedPoster, setStreamedPoster] = useState<string | undefined>();
+  const [streamedPosterChecked, setStreamedPosterChecked] = useState(false);
+  const [streamedPosterFailed, setStreamedPosterFailed] = useState(false);
+  const needsStreamedPoster = Boolean(streamedPosterFetcher) && !hasOwnPoster && !streamedPosterChecked;
+
+  useEffect(() => {
+    if (!needsStreamedPoster || !streamedPosterFetcher) return;
+    let cancelled = false;
+    streamedPosterFetcher(match.title).then((poster) => {
+      if (cancelled) return;
+      setStreamedPoster(poster);
+      setStreamedPosterChecked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsStreamedPoster, streamedPosterFetcher, match.title]);
+
+  const posterSrc = hasOwnPoster ? match.poster : !streamedPosterFailed ? streamedPoster : undefined;
+  const showPoster = Boolean(posterSrc);
 
   return (
     <article className="min-w-75 md:min-w-100 relative overflow-hidden border border-brand-border hover:border-white/40 transition-colors group shrink-0 bg-[#0d0d0e]">
@@ -29,13 +56,13 @@ export function MatchCard({ match }: { match: Match }) {
             <div className="absolute inset-0 overflow-hidden">
               {/* Some posters resolve to an upstream error page mislabeled as an image — fall back cleanly if it fails to actually decode. */}
               <img
-                src={match.poster}
+                src={posterSrc}
                 alt=""
                 draggable={false}
                 loading="lazy"
                 decoding="async"
                 className="absolute inset-0 w-full h-full object-cover"
-                onError={() => setPosterFailed(true)}
+                onError={() => (hasOwnPoster ? setPosterFailed(true) : setStreamedPosterFailed(true))}
               />
               <div className="absolute inset-0 bg-linear-to-b from-black/40 via-black/10 to-black/40" />
             </div>

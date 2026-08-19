@@ -3,6 +3,10 @@
     {
       "source": "/api/watchfooty/:path*",
       "destination": "https://api.watchfooty.st/api/v1/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }

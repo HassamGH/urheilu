@@ -85,7 +85,7 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
 
         <h2 className="mt-2 shrink-0 text-3xl md:text-5xl font-black text-white max-w-3xl leading-tight">{match.title}</h2>
 
-        <div className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 bg-white group-hover:bg-gray-200 text-black font-bold px-5 py-3 rounded-sm transition-colors">
+        <div className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 bg-white group-hover:bg-gray-200 group-hover:-translate-y-px text-black font-bold px-5 py-3 rounded-sm transition-all duration-200">
           <span className="material-symbols-outlined text-base">play_arrow</span>
           Watch Now
         </div>

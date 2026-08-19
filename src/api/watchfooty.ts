@@ -101,8 +101,13 @@ export function normalizeStream(raw: RawStream, matchId: string, index = 0): Str
   };
 }
 
-export function normalizeMatch(raw: RawMatch): Match | null {
-  const id = raw.matchId || raw.id;
+// `fallbackId` covers the single-match detail endpoint (see getMatchDetails): for single-event
+// fixtures (racing sessions, WWE/UFC shows...) that response omits both `matchId` and `id`
+// entirely — it has an unrelated `eventId` instead — even though every other field is valid, so
+// normalizing would otherwise reject perfectly good data just for lacking an id. The caller
+// already knows the id it requested the match by, so it's threaded through as the fallback.
+export function normalizeMatch(raw: RawMatch, fallbackId?: string): Match | null {
+  const id = raw.matchId || raw.id || fallbackId;
   if (!id || !raw.title) return null;
   const status = raw.status;
   // `currentMinute` is overloaded by the API: for live matches it's the match clock ("22'"),
@@ -115,15 +120,23 @@ export function normalizeMatch(raw: RawMatch): Match | null {
   // (seen on cricket, where `date` is day-granular with no kickoff time, so this can't catch
   // same-day cases — but it does catch matches flagged live while dated a future day).
   const isLive = rawIsLive && (!startTime || new Date(startTime).getTime() <= Date.now());
+  // Same single-match endpoint, another quirk: single-event fixtures get the event name stuffed
+  // into BOTH `teams.home.name` and `teams.away.name` (identical strings, identical logos) instead
+  // of the listing endpoints' `teams.event` shape — which would otherwise defeat isEvent detection
+  // downstream (MatchCard etc.) and render as a nonsense "Event Name vs Event Name" card. Collapse
+  // it back to "no team data" whenever both sides are the same non-empty name.
+  const rawHomeName = raw.teams?.home?.name;
+  const rawAwayName = raw.teams?.away?.name;
+  const isDuplicatedEventName = Boolean(rawHomeName) && rawHomeName === rawAwayName;
   return {
     id,
     sportId: raw.sport || 'unknown',
     title: raw.title,
     poster: absoluteAsset(raw.poster),
-    homeTeam: raw.teams?.home?.name,
-    awayTeam: raw.teams?.away?.name,
-    homeTeamLogo: absoluteAsset(raw.teams?.home?.logoUrl),
-    awayTeamLogo: absoluteAsset(raw.teams?.away?.logoUrl),
+    homeTeam: isDuplicatedEventName ? undefined : rawHomeName,
+    awayTeam: isDuplicatedEventName ? undefined : rawAwayName,
+    homeTeamLogo: isDuplicatedEventName ? undefined : absoluteAsset(raw.teams?.home?.logoUrl),
+    awayTeamLogo: isDuplicatedEventName ? undefined : absoluteAsset(raw.teams?.away?.logoUrl),
     competition: raw.league,
     competitionLogo: absoluteAsset(raw.leagueLogo),
     startTime,
@@ -133,8 +146,8 @@ export function normalizeMatch(raw: RawMatch): Match | null {
   };
 }
 
-export function normalizeMatchDetails(raw: RawMatch): MatchDetails | null {
-  const match = normalizeMatch(raw);
+export function normalizeMatchDetails(raw: RawMatch, fallbackId?: string): MatchDetails | null {
+  const match = normalizeMatch(raw, fallbackId);
   if (!match) return null;
   return {
     ...match,
@@ -240,7 +253,7 @@ const SPORT_PAGE_DATE_OFFSETS = [-1, 0, 1, 2, 3, 4, 5, 6];
 
 export async function getMatches(sport = 'all', signal?: AbortSignal) {
   const raw = await fetchRawMatchesForSport(sport, signal, SPORT_PAGE_DATE_OFFSETS);
-  const matches = dedupeMatches(raw.map(normalizeMatch).filter(Boolean) as Match[]);
+  const matches = dedupeMatches(raw.map((item) => normalizeMatch(item)).filter(Boolean) as Match[]);
   return applyListingFilters(matches, { windowDays: 7 });
 }
 
@@ -248,20 +261,20 @@ export async function getMatches(sport = 'all', signal?: AbortSignal) {
 // so sports we don't want to show are never requested in the first place.
 export async function getMatchesForSports(sports: string[], signal?: AbortSignal) {
   const results = await Promise.all(sports.map((sport) => fetchRawMatchesForSport(sport, signal)));
-  const matches = dedupeMatches(results.flat().map(normalizeMatch).filter(Boolean) as Match[]);
+  const matches = dedupeMatches(results.flat().map((item) => normalizeMatch(item)).filter(Boolean) as Match[]);
   return applyListingFilters(matches);
 }
 
 export async function getPopularMatches(date?: string, signal?: AbortSignal) {
   const query = date ? `?date=${date}` : '';
   const data = await requestJson<RawMatch[]>(`/matches/popular${query}`, signal);
-  const matches = data.map(normalizeMatch).filter(Boolean) as Match[];
+  const matches = data.map((item) => normalizeMatch(item)).filter(Boolean) as Match[];
   return applyListingFilters(matches, { allowStaleLiveOutsideWindow: false });
 }
 
 export async function getPopularLiveMatches(signal?: AbortSignal) {
   const data = await requestJson<RawMatch[]>('/matches/popular/live', signal);
-  const matches = data.map(normalizeMatch).filter(Boolean) as Match[];
+  const matches = data.map((item) => normalizeMatch(item)).filter(Boolean) as Match[];
   return applyListingFilters(matches, { allowStaleLiveOutsideWindow: false });
 }
 
@@ -291,7 +304,7 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
   try {
     const data = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
     const raw = Array.isArray(data) ? data[0] : data;
-    const match = raw && normalizeMatchDetails(raw);
+    const match = raw && normalizeMatchDetails(raw, matchId);
     if (match) return correctStaleLiveCricket(match) as MatchDetails;
   } catch {
     // fall through to the listing-based lookup below
@@ -299,7 +312,7 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
 
   const listing = await requestJson<RawMatch[]>('/matches/all', signal);
   const raw = listing.find((item) => (item.matchId || item.id) === matchId);
-  const match = raw && normalizeMatchDetails(raw);
+  const match = raw && normalizeMatchDetails(raw, matchId);
   if (!match) throw new Error('Match not found');
   return correctStaleLiveCricket(match) as MatchDetails;
 }

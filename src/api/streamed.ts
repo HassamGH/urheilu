@@ -7,6 +7,7 @@ type RawStreamedTeam = { name?: string };
 type RawStreamedMatch = {
   id: string;
   title?: string;
+  poster?: string;
   teams?: { home?: RawStreamedTeam; away?: RawStreamedTeam };
   sources?: { source: string; id: string }[];
 };
@@ -106,4 +107,101 @@ export async function getStreamedFallbackStreams(
     isAvailable: true,
     sourceLabel: isUnconfirmed ? matchTitle : undefined
   }));
+}
+
+function normalizeFightTitle(title?: string) {
+  return (title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// The fight listing is small (a couple dozen entries) and shared across every fight-card match on
+// a page, so it's fetched once and cached for the session rather than once per card.
+let fightMatchesPromise: Promise<RawStreamedMatch[]> | null = null;
+
+function getStreamedFightMatches() {
+  if (!fightMatchesPromise) {
+    fightMatchesPromise = requestJson<RawStreamedMatch[]>('/api/matches/fight').catch(() => [] as RawStreamedMatch[]);
+  }
+  return fightMatchesPromise;
+}
+
+// WatchFooty's own poster asset 500s for most individual fight-card bouts (an upstream bug, not
+// something within our control) — streamed.pk's fight listing is an independent second source for
+// the same event. There's no shared id between the two APIs, so this correlates by normalized
+// title instead, the same way getStreamedFallbackStreams correlates by team name.
+export async function getStreamedFightPoster(title: string): Promise<string | undefined> {
+  const target = normalizeFightTitle(title);
+  if (!target) return undefined;
+  const matches = await getStreamedFightMatches();
+  const found = matches.find((match) => match.poster && normalizeFightTitle(match.title) === target);
+  return found?.poster ? `${STREAMED_BASE}${found.poster}` : undefined;
+}
+
+let racingMatchesPromise: Promise<RawStreamedMatch[]> | null = null;
+
+function getStreamedRacingMatches() {
+  if (!racingMatchesPromise) {
+    racingMatchesPromise = requestJson<RawStreamedMatch[]>('/api/matches/motor-sports').catch(() => [] as RawStreamedMatch[]);
+  }
+  return racingMatchesPromise;
+}
+
+// A racing title on both APIs is "<event> - <session-or-series>" (e.g. WatchFooty's "Heineken
+// Dutch Grand Prix - Qual" / streamed's "Dutch Grand Prix - Qualifying"), but which half is the
+// "event" and which is the "session" isn't consistent between them (NASCAR flips it: WatchFooty's
+// "Team EJP 175 - NASCAR" vs streamed's "Nascar Truck Series 2026 - Team EJP 175") — so both
+// orderings are tried. The event half only needs to overlap (sponsor prefixes like "Heineken"
+// mean neither side is a clean substring of the other); the session half is matched via a small
+// abbreviation table (WatchFooty uses "Qual"/"FP1"/"SR", streamed spells them out) and then
+// compared for exact equality — loose substring matching here previously matched "Qual" against
+// "Sprint Qualifying" since "qualifying" is a substring of it, attaching the wrong session's poster.
+const SESSION_ALIASES: [RegExp, string][] = [
+  [/^fp ?1$/, 'practice 1'],
+  [/^fp ?2$/, 'practice 2'],
+  [/^fp ?3$/, 'practice 3'],
+  [/^qual(ifying)?$/, 'qualifying'],
+  [/^q ?1$/, 'qualifying 1'],
+  [/^sq$/, 'sprint qualifying'],
+  [/^ss$/, 'sprint qualifying'],
+  [/^sr$/, 'sprint race'],
+  [/^sprint$/, 'sprint race'],
+  [/^race$/, 'race']
+];
+
+function expandSession(chunk: string) {
+  for (const [pattern, full] of SESSION_ALIASES) {
+    if (pattern.test(chunk)) return full;
+  }
+  return chunk;
+}
+
+function titleChunks(title?: string) {
+  return (title || '')
+    .split(' - ')
+    .map((part) => part.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function chunkOverlaps(a: string, b: string) {
+  if (a.length < 3 || b.length < 3) return a === b;
+  return a === b || a.includes(b) || b.includes(a);
+}
+
+function racingTitlesCorrelate(watchfootyTitle: string, streamedTitle?: string) {
+  const a = titleChunks(watchfootyTitle);
+  const b = titleChunks(streamedTitle);
+  if (a.length < 2 || b.length < 2) return false;
+  const aEvent = a.slice(0, -1).join(' ');
+  const bEvent = b.slice(0, -1).join(' ');
+  const aSession = expandSession(a[a.length - 1]);
+  const bSession = expandSession(b[b.length - 1]);
+  return chunkOverlaps(aEvent, bEvent) && aSession === bSession;
+}
+
+// Same upstream-poster-500 problem as fighting (see getStreamedFightPoster), for racing sessions
+// instead of fight cards.
+export async function getStreamedRacingPoster(title: string): Promise<string | undefined> {
+  if (!title) return undefined;
+  const matches = await getStreamedRacingMatches();
+  const found = matches.find((match) => match.poster && racingTitlesCorrelate(title, match.title));
+  return found?.poster ? `${STREAMED_BASE}${found.poster}` : undefined;
 }
