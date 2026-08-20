@@ -110,10 +110,24 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
           <button
             aria-label={`${match.title} has not started yet`}
             disabled
-            className="mt-5 shrink-0 inline-flex w-fit items-center gap-2 font-bold px-5 py-3 rounded-sm border border-white/25 bg-black/30 text-gray-300 backdrop-blur-sm cursor-not-allowed"
+            className="mt-5 shrink-0 inline-flex w-fit items-center gap-3
+                      rounded-md border border-white/15
+                      bg-linear-to-r from-white/8 to-white/3
+                      px-5 py-2.5
+                      text-sm font-bold tracking-wide text-white/75
+                      backdrop-blur-xl
+                      shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]
+                      cursor-not-allowed"
           >
-            <span className="material-symbols-outlined text-base">schedule</span>
-            Not Started Yet
+            <span className="material-symbols-outlined text-[17px] text-brand-live">
+              schedule
+            </span>
+
+            <span>Upcoming</span>
+
+            <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+              Soon
+            </span>
           </button>
         ) : (
           <Link

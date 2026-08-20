@@ -7,18 +7,23 @@ import { useHorizontalOverflow } from '../../lib/useHorizontalOverflow';
 import { MatchCard } from './MatchCard';
 import { DateBadge } from './DateBadge';
 import { CompetitionHeader } from './CompetitionHeader';
+import { SegmentHeader } from './SegmentHeader';
 import { ScrollEdgeFade } from './ScrollEdgeFade';
 import { ScrollArrows } from './ScrollArrows';
 
 // One competition's own short rail within a date — its own drag/overflow state, same as the old
-// single per-day rail had, just one per competition now instead of one per day.
+// single per-day rail had, just one per competition now instead of one per day. A row folded
+// together from several under-sized competitions (see buildCompetitionGroups) has no single
+// competition to head it, so it skips the fixed top header in favor of a small SegmentHeader
+// scrolling inline above each competition's own cluster of cards instead.
 function CompetitionRail({ group }: { group: CompetitionGroup }) {
   const drag = useDragScroll<HTMLDivElement>();
   const canScroll = useHorizontalOverflow(drag.ref, [group.matches]);
+  const isMerged = group.segments.length > 1;
 
   return (
     <div>
-      <CompetitionHeader name={group.name} logo={group.logo} count={group.matches.length} />
+      {!isMerged && <CompetitionHeader name={group.name} logo={group.logo} count={group.matches.length} />}
       <div className="relative">
         <div
           ref={drag.ref}
@@ -29,7 +34,16 @@ function CompetitionRail({ group }: { group: CompetitionGroup }) {
           onPointerCancel={drag.onPointerCancel}
           onClickCapture={drag.onClickCapture}
         >
-          {group.matches.map((match) => <MatchCard key={match.id} match={match} />)}
+          {isMerged
+            ? group.segments.map((segment) => (
+                <div key={segment.key} className="flex flex-col gap-3 shrink-0">
+                  <SegmentHeader name={segment.name} logo={segment.logo} count={segment.matches.length} />
+                  <div className="flex gap-4">
+                    {segment.matches.map((match) => <MatchCard key={match.id} match={match} />)}
+                  </div>
+                </div>
+              ))
+            : group.matches.map((match) => <MatchCard key={match.id} match={match} />)}
         </div>
         {canScroll && <ScrollEdgeFade />}
         {canScroll && <ScrollArrows onLeft={() => drag.scrollBy(-1, 420)} onRight={() => drag.scrollBy(1, 420)} />}

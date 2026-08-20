@@ -17,6 +17,12 @@ export function MatchCard({ match }: { match: Match }) {
   // gives them a single event name instead. Forcing those into a two-team "X vs Y" layout produced
   // nonsense (both sides showing the same sliced-title initials), so they get a plain event card.
   const isEvent = !match.homeTeam && !match.awayTeam;
+  // Showing just one crest (or none) next to a lettered-initial placeholder for the other team read
+  // as broken rather than "no poster yet" — so a two-team match only gets the crest-overlay
+  // treatment when BOTH crests are actually available. Missing either one falls through to the same
+  // branded urheilu poster CardBackdrop already shows for genuinely teamless events, instead of ever
+  // rendering an initials fallback.
+  const hasBothTeamLogos = Boolean(match.homeTeamLogo) && Boolean(match.awayTeamLogo);
   // The API supplies a real poster for most fixtures, not just single-event cards — prefer it as
   // the backdrop over the hand-picked gradients in cardBackgrounds.ts, which are only a fallback
   // for the (usually team-vs-team) matches that have no poster at all.
@@ -88,14 +94,18 @@ export function MatchCard({ match }: { match: Match }) {
               <div className="absolute inset-0 bg-linear-to-b from-black/40 via-black/10 to-black/40" />
             </div>
           ) : (
-            <CardBackdrop homeSrc={match.homeTeamLogo} awaySrc={match.awayTeamLogo} fallback={fallback} />
+            <CardBackdrop
+              homeSrc={hasBothTeamLogos ? match.homeTeamLogo : undefined}
+              awaySrc={hasBothTeamLogos ? match.awayTeamLogo : undefined}
+              fallback={fallback}
+            />
           )}
 
           <div className="absolute top-3 left-3 bg-brand-surface text-white px-2 py-1 rounded text-[10px] font-bold tracking-wide flex items-center gap-1.5 z-10 border border-brand-border">
             <span className={match.isLive ? 'w-1.5 h-1.5 rounded-full bg-brand-live animate-pulse' : 'w-1.5 h-1.5 rounded-full bg-gray-500'} />
             {match.isLive ? 'LIVE' : compactStatus(match)}
           </div>
-          {!isEvent && !showPoster && (
+          {!isEvent && !showPoster && hasBothTeamLogos && (
             <div className="absolute inset-0 flex items-center justify-center gap-6">
               <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} />
               <MatchupDivider match={match} />
