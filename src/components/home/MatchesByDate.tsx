@@ -37,7 +37,14 @@ function CompetitionRail({ group }: { group: CompetitionGroup }) {
           {isMerged
             ? group.segments.map((segment) => (
                 <div key={segment.key} className="flex flex-col gap-3 shrink-0">
-                  <SegmentHeader name={segment.name} logo={segment.logo} count={segment.matches.length} />
+                  {/* `sticky left-0` instead of scrolling off with its cards — the label stays put at the
+                      row's left edge for as long as any of its own cards are still in view, then gets
+                      pushed along once the next segment's cards arrive, the same way a sticky table header
+                      behaves. A backdrop is needed since it now sits stacked over whatever card scrolls
+                      underneath it rather than the plain row background. */}
+                  <div className="sticky left-0 z-10 w-fit bg-brand-bg/90 backdrop-blur-sm pr-3 rounded-sm">
+                    <SegmentHeader name={segment.name} logo={segment.logo} count={segment.matches.length} />
+                  </div>
                   <div className="flex gap-4">
                     {segment.matches.map((match) => <MatchCard key={match.id} match={match} />)}
                   </div>
@@ -45,7 +52,13 @@ function CompetitionRail({ group }: { group: CompetitionGroup }) {
               ))
             : group.matches.map((match) => <MatchCard key={match.id} match={match} />)}
         </div>
-        {canScroll && <ScrollEdgeFade />}
+        {/* Left fade always shows, even when the row's cards all fit and there's nothing to scroll to
+            — see the `sides` comment on ScrollEdgeFade. Right fade shows either when there's actually
+            more to scroll to (`canScroll`) or once a row has enough cards (3+) that it reads as a
+            "row", not a couple of cards sitting alone — at that count the right edge is expected to
+            hint at more, the same way it does on rows that do overflow, even on a wide-enough viewport
+            where these particular 3 happen to still fit. */}
+        <ScrollEdgeFade sides={canScroll || group.matches.length >= 3 ? 'both' : 'left'} top={isMerged ? 'top-7' : undefined} />
         {canScroll && <ScrollArrows onLeft={() => drag.scrollBy(-1, 420)} onRight={() => drag.scrollBy(1, 420)} />}
       </div>
     </div>

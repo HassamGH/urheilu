@@ -348,26 +348,58 @@ type OriginTaggedMatch = { raw: RawMatch; assetOrigin: string };
 
 // The per-sport endpoint returns everything it has (weeks of fixtures) unless scoped with `date`,
 // so every listing fetch is pinned to just the calendar days it actually needs instead. Default is
-// today+tomorrow; getMatches (a single filtered sport) pulls today plus the next two days for that
-// page's day-by-day rail — three parallel requests instead of the eight a full week used to cost,
-// for a noticeably faster load at the price of the rail only covering three days instead of seven.
-// The "All" view and the featured banner stay narrower still (today+tomorrow).
+// today+tomorrow; getMatches (a single filtered sport) pulls yesterday through two days out for that
+// page's day-by-day rail — four parallel requests instead of the eight a full week used to cost, for
+// a noticeably faster load at the price of the rail only covering four days instead of seven. The
+// "All" view and the featured banner stay narrower still (today+tomorrow).
 //
 // Each offset is still caught individually rather than left to reject the outer Promise.all: even
 // at three offsets in flight, each independently retrying across all of WATCHFOOTY_API_ORIGINS, one
 // date range having a bad time (already logged inside requestJson's own retries) shouldn't take the
 // whole sport's listing down with it, empty-handed, rather than just quietly missing that one day.
+// ANSI codes rather than a color-logging dependency — this only ever runs server-side, straight to
+// the terminal Next's dev server already prints its own colored `GET /path 200 in 123ms` lines to,
+// so plain escape codes match that output instead of introducing a different look.
+const ANSI_RED = '\x1b[31m';
+const ANSI_RESET = '\x1b[0m';
+
 async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offsets: number[] = [0, 1]): Promise<OriginTaggedMatch[]> {
   // Not cacheable — a single day of one sport is already routinely 2-3MB+ (see the requestJson
   // comment), past Next's per-entry Data Cache limit.
   const results = await Promise.all(
     offsets.map(async (offset) => {
+      const path = `/matches/${sport}?date=${dateParam(offset)}`;
+      const start = Date.now();
       try {
-        const { data, assetOrigin } = await requestJson<RawMatch[]>(`/matches/${sport}?date=${dateParam(offset)}`, signal, false);
+        const { data, assetOrigin } = await requestJson<RawMatch[]>(path, signal, false);
         return data.map((raw) => ({ raw, assetOrigin }));
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') throw err;
-        console.error(`fetchRawMatchesForSport: giving up on ${sport}/date=${dateParam(offset)} after exhausting every origin`, err);
+        // `warn`, not `error`: every origin timing out for one date/sport just means that one
+        // offset comes back empty for this request — the listing still renders with whatever the
+        // other offsets/sports returned, so this isn't a failure the page needs to surface as one.
+        //
+        // Shaped to match Next's own `GET /path 200 in 123ms` dev request logs — one line, not a
+        // multi-line `console.warn(msg, err)` dump (Next's console intercept renders an Error
+        // argument's full source-mapped stack trace, many times longer than the one line that
+        // actually matters here). `reason` is folded into a label rather than appended as free text
+        // for the same reason `[TIMEOUT]` reads better inline than a full DOMException message would.
+        // Duration formatted the same way Next's own request log switches from `123ms` to `4.1s` past
+        // one second, so a slow-but-not-timed-out entry (a real 5s+ origin hang) reads consistently
+        // next to Next's own lines instead of standing out as a raw millisecond count.
+        const message = err instanceof Error ? err.message : String(err);
+        const isTimeout = /timeout|timed out/i.test(message);
+        // 504, not a bare 500, when every origin timed out: this app is acting as the gateway
+        // waiting on an upstream (WatchFooty) that never answered in time — the exact case 504 is
+        // for. A non-timeout failure (a real 4xx/5xx from the origin, DNS failure, etc.) stays 500
+        // since there's no single more-specific code that fits every one of those.
+        const status = isTimeout ? 504 : 500;
+        const label = isTimeout ? 'TIMEOUT' : 'ERROR';
+        const elapsed = Date.now() - start;
+        const duration = elapsed >= 1000 ? `${(elapsed / 1000).toFixed(1)}s` : `${elapsed}ms`;
+        // `WARN` level prefix — the pino/winston convention — makes this greppable/filterable by
+        // severity the way a bare Next-style request line (no level marker) isn't.
+        console.warn(` ${ANSI_RED}WARN${ANSI_RESET} GET ${path} ${ANSI_RED}${status}${ANSI_RESET} in ${duration} ${ANSI_RED}[${label}]${ANSI_RESET}`);
         return [];
       }
     })
@@ -375,7 +407,11 @@ async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offs
   return results.flat();
 }
 
-const SPORT_PAGE_DATE_OFFSETS = [0, 1, 2];
+// -1 (yesterday) is included so a match that kicked off late enough to still be live past midnight
+// (e.g. an 11:30 PM start) isn't missed just because its calendar day has already turned over —
+// isWithinWindow below still drops every non-live yesterday match, so this only ever surfaces
+// yesterday's fixtures that are still actually live.
+const SPORT_PAGE_DATE_OFFSETS = [-1, 0, 1, 2];
 
 export async function getMatches(sport = 'all', signal?: AbortSignal) {
   // Kicked off before awaiting WatchFooty below (rather than left to correctCricketMatchTimes to
@@ -390,6 +426,8 @@ export async function getMatches(sport = 'all', signal?: AbortSignal) {
   // Matches windowDays to SPORT_PAGE_DATE_OFFSETS above (today + 2 days = 3) — raw data past that
   // was never fetched in the first place now, so a wider window here wouldn't let anything more
   // through anyway; keeping the two in sync just avoids a stale number that no longer means anything.
+  // (Yesterday's offset isn't counted here — isWithinWindow already lets a live match through
+  // regardless of windowDays, which is the only kind of yesterday-dated match that offset can add.)
   return applyListingFilters(withPosters, { windowDays: 3 });
 }
 

@@ -18,7 +18,11 @@ const FOOTBALL_LEAGUE_RULES: LeagueRule[] = [
   { patterns: [['serie a']], exclude: ['brazilian', 'women'] },
   { patterns: [['bundesliga']], exclude: ['2.', ' ii', 'women', 'austria'] },
   { patterns: [['fifa world cup'], ['world cup']], exclude: ['qualif', 'women', 'u-', 'u17', 'u20', 'u23', 'club'] },
-  { patterns: [['ligue 1']], exclude: ['women'] },
+  // Bare "ligue 1" is French Ligue 1's own name, but it's also a substring of other countries'
+  // identically-named top flights in this feed (seen: "Tunisian Ligue 1") — excluded by name as
+  // they turn up rather than trying to build a positive match for France alone, since the feed's
+  // own naming for the French league varies (seen both "Ligue 1" and "French Ligue 1").
+  { patterns: [['ligue 1']], exclude: ['women', 'tunisia'] },
   { patterns: [['conference league']] },
   { patterns: [['copa del rey']] },
   { exact: ['fa cup', 'english fa cup', 'the fa cup'] },
