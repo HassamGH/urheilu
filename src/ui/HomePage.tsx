@@ -5,7 +5,6 @@ import { getMatchesForHomePage, getFeaturedMatches } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
 import type { Match } from '../types';
 import { Header } from '../components/layout/Header';
-import { SportsFilter } from '../components/home/SportsFilter';
 import { FeaturedMatchBanner } from '../components/home/FeaturedMatchBanner';
 import { MatchRail } from '../components/home/MatchRail';
 import { MatchesByDate } from '../components/home/MatchesByDate';
@@ -31,14 +30,27 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
   const markPageArrived = useMarkPageArrived();
   useEffect(markPageArrived, [markPageArrived]);
 
-  const [sport, setSport] = useState(initialSport);
+  // Seeded from the URL (not bare `initialSport`) because this component can remount with a STALE
+  // `initialSport` prop: the sport pill click below updates the address bar via raw
+  // `history.pushState` rather than Next's router (see the comment on that), so Next's own
+  // client-side Router Cache never learns about the change and keeps serving its snapshot of `/`
+  // from before the filter was touched. Navigate away (a match/stream page) and back, and Next
+  // restores HomePage from that stale cache — `initialSport` on remount is whatever sport was
+  // selected at the ORIGINAL page load, not the one the URL bar (and the user) last showed. Reading
+  // `window.location.search` directly sidesteps that: pushState always kept the address bar itself
+  // accurate, so it's the one reliable source of truth for "what sport was actually selected" across
+  // a remount. `window` is undefined during SSR, where the prop is already correct anyway.
+  const [sport, setSport] = useState(
+    () => (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('sport') : null) || initialSport
+  );
   // Flips permanently on the first sport change (by click or by popstate) so `initialMatches` —
   // a snapshot from the original server render — is only ever handed to useAsync once, even if the
   // viewer later cycles back to `initialSport`. Without this, useAsync's `refreshIndex` (which only
   // advances on an explicit retry, never on a sport change) would treat every return trip to the
   // original sport as "still the initial load" and reuse that now-stale snapshot instead of
-  // fetching fresh data.
-  const sportEverChangedRef = useRef(false);
+  // fetching fresh data. Also starts true when the URL-derived sport above already disagreed with
+  // `initialSport` at mount, for the same reason.
+  const sportEverChangedRef = useRef(sport !== initialSport);
 
   useEffect(() => {
     const onPopState = () => {
@@ -120,13 +132,11 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
   return (
     <div className="min-h-screen bg-brand-bg text-white">
       <div className="relative">
-        <Header matches={visibleMatches} />
+        <Header matches={visibleMatches} sport={sport} onSportChange={handleSportChange} />
         {showFeaturedSkeleton && <div className="h-[50vh] md:h-[60vh] bg-[#0d0d0e] animate-pulse" />}
         {featuredMatches.length > 0 && <FeaturedMatchBanner matches={featuredMatches} />}
       </div>
       <main className="w-full px-4 md:px-12 py-6">
-        <SportsFilter sport={sport} onChange={handleSportChange} />
-
         <TopLoader loading={matches.loading} />
         {showListError && <ErrorBlock message="Unable to load matches." onRetry={matches.retry} />}
         {showEmptyState && <EmptyState text={displayedSport === 'all' ? 'No matches are currently available.' : 'No matches available for this sport right now.'} />}

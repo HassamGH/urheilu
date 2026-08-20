@@ -37,8 +37,10 @@ function espnDateParam(offsetDays: number): string {
   return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}`;
 }
 
+// See the matching comment on watchfooty.ts's requestJson — same server-side Data Cache reasoning,
+// same 20s TTL so this never lags behind what that cache already tolerates.
 async function requestForOffset(offsetDays: number, signal?: AbortSignal): Promise<RawEspnResponse> {
-  const response = await fetch(`${ESPN_BASE}/scoreboard/header?sport=cricket&dates=${espnDateParam(offsetDays)}`, { signal });
+  const response = await fetch(`${ESPN_BASE}/scoreboard/header?sport=cricket&dates=${espnDateParam(offsetDays)}`, { signal, next: { revalidate: 20 } });
   if (!response.ok) throw new Error(`ESPN Cricinfo request failed: ${response.status}`);
   return response.json() as Promise<RawEspnResponse>;
 }

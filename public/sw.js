@@ -34,9 +34,9 @@ function isBuildAsset(url) {
 }
 
 // The JSON API proxy only — NOT `/api/watchfooty/poster|team-logo|league-logo/*`, because those
-// don't exist anymore (images are fetched directly from api.watchfooty.st, see ASSET_ORIGIN in
-// watchfooty.ts) and wouldn't want short-TTL treatment even if they did; they already carry their
-// own long-lived Cache-Control from the origin.
+// don't exist anymore (images are fetched directly from whichever WatchFooty origin served them —
+// see the assetOrigin comment on requestJson in watchfooty.ts) and wouldn't want short-TTL treatment
+// even if they did; they already carry their own long-lived Cache-Control from the origin.
 function isApiRequest(url) {
   return url.origin === self.location.origin && url.pathname.startsWith('/api/watchfooty/');
 }

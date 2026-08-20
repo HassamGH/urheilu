@@ -20,13 +20,7 @@ npm run start   # next start
 
 ## Configuration
 
-Client-side calls to WatchFooty are proxied through a relative path (works identically in dev, build, and on Vercel — see `rewrites()` in `next.config.js`):
-
-```text
-/api/watchfooty/* -> https://api.watchfooty.st/api/v1/*
-```
-
-Server Components fetch WatchFooty directly (no proxy needed server-side — see `API_BASE` in `src/api/watchfooty.ts`). Image/logo assets are also fetched directly from `api.watchfooty.st`, not proxied. ESPN Cricinfo (`src/api/cricinfo.ts`) and streamed.pk (`src/api/streamed.ts`) are always called directly; both have open CORS.
+WatchFooty is tried at `api.watchfooty.st` first, falling back to the mirror at `api.watchfooty.ru` if that request fails (see `WATCHFOOTY_API_ORIGINS` in `src/api/watchfooty.ts`). Server Components/Route Handlers try both origins directly; client-side calls go through `src/app/api/watchfooty/[...path]/route.ts`, a route handler that runs the same primary/fallback attempt server-side (works identically in dev, build, and on Vercel) and reports which origin it used via an `x-api-origin` response header, so relative poster/logo paths get resolved against whichever host actually served that response. Image/logo assets are fetched directly from that origin, not proxied. ESPN Cricinfo (`src/api/cricinfo.ts`) and streamed.pk (`src/api/streamed.ts`) are always called directly, with no fallback origin; both have open CORS.
 
 No API key is required by any of these sources at the time of implementation. If that changes, add server-side environment variables rather than exposing secrets in client code.
 

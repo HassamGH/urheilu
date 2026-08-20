@@ -1,6 +1,9 @@
 import { getMatchDetails, getStreams } from '../../../../../api/watchfooty';
 import { PlayerPageClient } from './player-page-client';
 
+// See the matching comment on the match page's revalidate — same reasoning, same TTL.
+export const revalidate = 20;
+
 export default async function Page({ params }: { params: Promise<{ id: string; streamId: string }> }) {
   const { id, streamId } = await params;
   const matchId = decodeURIComponent(id);

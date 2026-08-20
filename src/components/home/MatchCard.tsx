@@ -49,7 +49,17 @@ export function MatchCard({ match }: { match: Match }) {
   const showPoster = Boolean(posterSrc);
 
   return (
-    <article className="min-w-75 md:min-w-100 relative overflow-hidden border border-brand-border hover:border-white/40 transition-colors group shrink-0 bg-[#0d0d0e]">
+    // `w-*` (a definite width), not `min-w-*` — a min-width is only a floor, and with no ceiling a
+    // flex item is free to grow past it to fit unwrappable content. The title bar's `truncate` sets
+    // `white-space: nowrap`, and a nowrap text node's natural width counts toward this item's
+    // content-driven auto sizing, so a long enough title (e.g. "New England Revolution vs New York
+    // City FC") silently widened just that one card well past its neighbors' — which `truncate`
+    // then had no overflow left to actually ellipsize. Every other card in the same horizontally-
+    // scrolling row got stretched to match its height too (flex rows stretch cross-axis by default),
+    // leaving visible empty space below their own (shorter, correctly-truncated) title bars. A
+    // definite width is a hard ceiling as well as a floor, so every card in a row now renders at
+    // the exact same width — restoring both the truncation and the uniform row height.
+    <article className="w-55 sm:w-75 md:w-100 relative overflow-hidden border border-brand-border hover:border-white/40 transition-colors group shrink-0 bg-[#0d0d0e]">
       <Link
         href={`/match/${encodeURIComponent(match.id)}`}
         aria-label={`Watch ${match.title}`}
@@ -57,9 +67,12 @@ export function MatchCard({ match }: { match: Match }) {
         onClick={markNavigating}
         draggable={false}
       >
-        {/* Fixed-height image area — the title lives in its own row below instead of overlaid on
-            top, so the backdrop/poster is never partially covered by it. */}
-        <div className="relative h-55 shrink-0 overflow-hidden">
+        {/* Height tracks the card's own width (16:9) instead of a fixed pixel height — a fixed
+            height paired with a width that shrinks/grows across breakpoints skews the effective
+            aspect ratio the poster is cropped to, which is what was cutting portions of the image
+            off on narrower cards. The title lives in its own row below instead of overlaid on top,
+            so the backdrop/poster is never partially covered by it. */}
+        <div className="relative aspect-video shrink-0 overflow-hidden">
           {showPoster ? (
             <div className="absolute inset-0 overflow-hidden">
               {/* Some posters resolve to an upstream error page mislabeled as an image — fall back cleanly if it fails to actually decode. */}

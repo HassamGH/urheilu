@@ -2,21 +2,13 @@
 const nextConfig = {
   // `next dev`/`next build` otherwise regenerate AGENTS.md/CLAUDE.md (a boilerplate note for AI
   // coding agents about Next.js 16's breaking changes) on every run — not wanted here.
-  agentRules: false,
-  // Client-side calls to WatchFooty (the sport-filter switch, the 90s poll/retry — see API_BASE in
-  // watchfooty.ts) go through this relative path rather than the upstream URL directly, so the
-  // browser never needs CORS clearance for it. Living in next.config.js (not vercel.json) means it
-  // works identically in `next dev`, `next build && next start`, and on an actual Vercel deploy —
-  // vercel.json rewrites are a platform-level feature that only takes effect once actually deployed
-  // to Vercel, so a rewrite defined only there is invisible to local dev/start entirely.
-  async rewrites() {
-    return [
-      {
-        source: '/api/watchfooty/:path*',
-        destination: 'https://api.watchfooty.st/api/v1/:path*'
-      }
-    ];
-  }
+  agentRules: false
+  // Client-side calls to WatchFooty (the sport-filter switch, the 90s poll/retry — see
+  // CLIENT_API_BASE in watchfooty.ts) used to go through a plain `rewrites()` entry here to a
+  // single fixed upstream URL. That's gone now that there's a primary/fallback origin to try — a
+  // static rewrite can only ever point at one destination, with no way to fail over to a second, so
+  // the proxy moved to a real route handler instead: src/app/api/watchfooty/[...path]/route.ts,
+  // which tries both origins itself the same way the server-side branch of requestJson does.
 };
 
 module.exports = nextConfig;

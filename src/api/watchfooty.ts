@@ -13,19 +13,28 @@ import { SHOWN_SPORT_SLUGS } from '../lib/sports';
 import { getStreamedFallbackStreams, toStreamedSport, dropPosterlessFightingMatches } from './streamed';
 import { correctCricketMatchTimes, warmCricinfoCache } from './cricinfo';
 
-// Client-side calls stay relative, routed through the `/api/watchfooty/*` rewrite (see
-// next.config.js). Server Components have no implicit origin to resolve a relative fetch()
-// against, and since CORS is a browser-only concern anyway, server-side calls skip the proxy
-// entirely and hit WatchFooty's upstream API directly.
-const API_BASE = typeof window === 'undefined' ? 'https://api.watchfooty.st/api/v1' : '/api/watchfooty';
+// `.ru` and `.su` both mirror `.st` exactly — same endpoint shapes, same relative poster/logo
+// paths, same open CORS — so each is a straight failover, not a different integration. Tried in
+// order and only ever sequentially (see requestJson/route.ts): a healthy primary never pays for the
+// others existing at all, since nothing later in the list is even attempted. Exported for the
+// client-side proxy route (src/app/api/watchfooty/[...path]/route.ts) to share, so there's one list
+// instead of several that could drift apart.
+export const WATCHFOOTY_API_ORIGINS = ['https://api.watchfooty.st', 'https://api.watchfooty.ru', 'https://api.watchfooty.su'];
 
-// Image/logo assets are served from WatchFooty's own Cloudflare-fronted origin with
-// `access-control-allow-origin: *` and long-lived `Cache-Control` (a year for logos, hours for
-// posters) already set — routing them through our `/api/watchfooty` proxy would strip none of
-// that but adds a pointless extra hop (and the Basic Auth middleware check) on every single image
-// a page loads. Pointing `<img>` tags straight at the origin lets the browser hit its CDN directly
-// and reuse its own HTTP cache across matches that share a team/league logo.
-const ASSET_ORIGIN = 'https://api.watchfooty.st';
+// Client-side calls stay relative, routed through the `/api/watchfooty/*` route handler (see
+// src/app/api/watchfooty/[...path]/route.ts), which runs the same primary/fallback attempt
+// server-side and reports which origin it used via a response header — see requestJson below.
+// Server Components have no implicit origin to resolve a relative fetch() against, and since CORS
+// is a browser-only concern anyway, server-side calls skip the proxy entirely and try each origin
+// directly.
+const CLIENT_API_BASE = '/api/watchfooty';
+
+// Image/logo assets are served from whichever WatchFooty origin actually answered the request that
+// returned them (see requestJson's `assetOrigin`) — routing them through our own proxy would strip
+// none of their own long-lived `Cache-Control` (a year for logos, hours for posters) but adds a
+// pointless extra hop (and the Basic Auth middleware check) on every single image a page loads.
+// Pointing `<img>` tags straight at the origin lets the browser hit its CDN directly and reuse its
+// own HTTP cache across matches that share a team/league logo.
 
 type RawSport = {
   name?: string;
@@ -65,18 +74,97 @@ type RawMatch = {
   streams?: RawStream[];
 };
 
-async function requestJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { signal });
+// `next.revalidate` only takes effect for the server-side branch (fetching WatchFooty directly) —
+// it puts these calls in Next's server-side Data Cache, so e.g. clicking from a match page into one
+// of its streams (two separate Server Component renders, seconds apart) reuses the just-fetched
+// match/listing data instead of re-hitting WatchFooty's API from scratch, and every visitor loading
+// the same match within the window shares one upstream request. On the client-side branch (relative
+// `/api/watchfooty/*`, a plain browser fetch) this option is simply ignored — the live-polling
+// components already get their own freshness from useAsync's refresh interval. 20s mirrors the
+// service worker's own API_TTL_MS, so a page's data is never staler than what the SW would already
+// be willing to serve from its own cache.
+//
+// `cacheable` opts a call OUT of that: Next's Data Cache silently refuses to store any single entry
+// over 2MB (logging an error and falling through to an uncached fetch instead of throwing) — and a
+// full per-sport/all-sports listing (see the "300-1500+ raw matches" comment on isWithinWindow
+// below) routinely lands well past that on a busy day, which was spamming that failed-to-cache error
+// on every request for exactly the endpoints most worth NOT re-fetching. Passing `false` for those
+// skips the doomed cache-write attempt entirely rather than paying its cost for nothing.
+//
+// Every caller gets back not just the parsed body but `assetOrigin` — whichever WatchFooty host
+// actually answered — because normalizeMatch's poster/logo fields are relative paths, and `.ru`'s
+// aren't guaranteed to resolve on `.st` (different host, unrelated CDN cache) or vice versa. A
+// request that failed over mid-outage needs its own assets resolved against the origin that
+// actually served ITS data, not whichever origin some other request happened to use.
+type ApiResult<T> = { data: T; assetOrigin: string };
+
+// A dead origin's fetch doesn't necessarily fail fast — a hostname that stops resolving, or a host
+// that accepts a connection and then never answers, can hang far longer than a clean HTTP error
+// response would (measured: one dead entry in WATCHFOOTY_API_ORIGINS was enough to stall a full
+// page load past 30s with no timeout here). Capping each origin's own attempt means a truly dead
+// one costs at most this long before moving on, however many more origins are still left to try.
+//
+// 5s, not something more generous — a hang here means the origin isn't answering AT ALL (this is
+// what actually fires, not a slow-but-eventually-successful response; normal responses measured at
+// 0.5-2s even under this app's own realistic concurrent load, so 5s already gives 2.5x+ headroom).
+// Waiting longer buys nothing for a host that was never going to answer either way, and directly
+// costs load time: three origins hanging back-to-back for one date range was measured taking a
+// single sport-filtered page over 24s to finally give up on that one date and move on.
+export const ORIGIN_TIMEOUT_MS = 5000;
+
+function withOriginTimeout(signal: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(ORIGIN_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+// `AbortSignal.timeout()`'s abort reason is a DOMException, not a plain Error — and unlike a plain
+// Error, DOMException's `message` is a getter-only prototype property with no setter. Next's own
+// error handling tries to write to `.message` when logging/serializing a thrown value, which is
+// silent for a normal Error but throws a totally unrelated TypeError for a raw DOMException — seen
+// in practice: exhausting every origin surfaced "Cannot set property message of [object
+// DOMException] which has only a getter" instead of the actual WatchFooty failure. Normalizing
+// whatever was caught into a real `Error` before it's ever stored/rethrown avoids that regardless
+// of what specifically caused it.
+function toError(err: unknown): Error {
+  return new Error(err instanceof Error ? err.message : String(err));
+}
+
+async function requestJson<T>(path: string, signal?: AbortSignal, cacheable = true): Promise<ApiResult<T>> {
+  if (typeof window === 'undefined') {
+    let lastError: Error | undefined;
+    for (const origin of WATCHFOOTY_API_ORIGINS) {
+      try {
+        const response = await fetch(`${origin}/api/v1${path}`, {
+          signal: withOriginTimeout(signal),
+          ...(cacheable ? { next: { revalidate: 20 } } : {})
+        });
+        if (!response.ok) throw new Error(`WatchFooty request failed: ${response.status}`);
+        return { data: (await response.json()) as T, assetOrigin: origin };
+      } catch (err) {
+        // Only the ORIGINAL caller-supplied signal aborting means the caller stopped waiting
+        // (unmount, a newer request superseding this one) — trying another origin for data nobody
+        // wants anymore would just be wasted work. `signal` here is never the per-origin timeout
+        // signal created above, so a timeout firing falls through to the next origin like any other
+        // failure instead of being mistaken for that.
+        if (signal?.aborted) throw err;
+        lastError = toError(err);
+      }
+    }
+    throw lastError;
+  }
+
+  const response = await fetch(`${CLIENT_API_BASE}${path}`, { signal });
   if (!response.ok) {
     throw new Error(`WatchFooty request failed: ${response.status}`);
   }
-  return response.json() as Promise<T>;
+  const assetOrigin = response.headers.get('x-api-origin') || WATCHFOOTY_API_ORIGINS[0];
+  return { data: (await response.json()) as T, assetOrigin };
 }
 
-function absoluteAsset(url?: string) {
+function absoluteAsset(url: string | undefined, assetOrigin: string) {
   if (!url) return undefined;
   if (/^https?:\/\//i.test(url)) return url;
-  return `${ASSET_ORIGIN}${url}`;
+  return `${assetOrigin}${url}`;
 }
 
 function streamType(url: string): Stream['type'] {
@@ -119,7 +207,7 @@ export function normalizeStream(raw: RawStream, matchId: string, index = 0): Str
 // entirely — it has an unrelated `eventId` instead — even though every other field is valid, so
 // normalizing would otherwise reject perfectly good data just for lacking an id. The caller
 // already knows the id it requested the match by, so it's threaded through as the fallback.
-export function normalizeMatch(raw: RawMatch, fallbackId?: string): Match | null {
+export function normalizeMatch(raw: RawMatch, assetOrigin: string, fallbackId?: string): Match | null {
   const id = raw.matchId || raw.id || fallbackId;
   if (!id || !raw.title) return null;
   const status = raw.status;
@@ -145,13 +233,13 @@ export function normalizeMatch(raw: RawMatch, fallbackId?: string): Match | null
     id,
     sportId: raw.sport || 'unknown',
     title: raw.title,
-    poster: absoluteAsset(raw.poster),
+    poster: absoluteAsset(raw.poster, assetOrigin),
     homeTeam: isDuplicatedEventName ? undefined : rawHomeName,
     awayTeam: isDuplicatedEventName ? undefined : rawAwayName,
-    homeTeamLogo: isDuplicatedEventName ? undefined : absoluteAsset(raw.teams?.home?.logoUrl),
-    awayTeamLogo: isDuplicatedEventName ? undefined : absoluteAsset(raw.teams?.away?.logoUrl),
+    homeTeamLogo: isDuplicatedEventName ? undefined : absoluteAsset(raw.teams?.home?.logoUrl, assetOrigin),
+    awayTeamLogo: isDuplicatedEventName ? undefined : absoluteAsset(raw.teams?.away?.logoUrl, assetOrigin),
     competition: raw.league,
-    competitionLogo: absoluteAsset(raw.leagueLogo),
+    competitionLogo: absoluteAsset(raw.leagueLogo, assetOrigin),
     startTime,
     status,
     isLive,
@@ -159,8 +247,8 @@ export function normalizeMatch(raw: RawMatch, fallbackId?: string): Match | null
   };
 }
 
-export function normalizeMatchDetails(raw: RawMatch, fallbackId?: string): MatchDetails | null {
-  const match = normalizeMatch(raw, fallbackId);
+export function normalizeMatchDetails(raw: RawMatch, assetOrigin: string, fallbackId?: string): MatchDetails | null {
+  const match = normalizeMatch(raw, assetOrigin, fallbackId);
   if (!match) return null;
   return {
     ...match,
@@ -173,7 +261,7 @@ export function normalizeMatchDetails(raw: RawMatch, fallbackId?: string): Match
 }
 
 export async function getSports(signal?: AbortSignal) {
-  const data = await requestJson<RawSport[]>('/sports', signal);
+  const { data } = await requestJson<RawSport[]>('/sports', signal);
   return data.map(normalizeSport).filter(Boolean) as Sport[];
 }
 
@@ -252,17 +340,42 @@ function applyListingFilters(
   );
 }
 
+// Each raw match is paired with the origin that actually returned it — the offsets below are
+// fetched in parallel, and a mid-outage failover means it's entirely possible for one date's fetch
+// to land on `.st` while another lands on `.ru` for the very same sport, so a single origin can't be
+// assumed for the whole batch (see the assetOrigin comment on requestJson).
+type OriginTaggedMatch = { raw: RawMatch; assetOrigin: string };
+
 // The per-sport endpoint returns everything it has (weeks of fixtures) unless scoped with `date`,
 // so every listing fetch is pinned to just the calendar days it actually needs instead. Default is
-// today+tomorrow; getMatches (a single filtered sport) pulls a wider [-1..6] range — yesterday for a
-// fixture stuck mid-correction (see correctStaleLiveCricket/allowStaleLiveOutsideWindow), and a full
-// week forward for that page's day-by-day rail. The "All" view and the featured banner stay narrow.
-async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offsets: number[] = [0, 1]): Promise<RawMatch[]> {
-  const results = await Promise.all(offsets.map((offset) => requestJson<RawMatch[]>(`/matches/${sport}?date=${dateParam(offset)}`, signal)));
+// today+tomorrow; getMatches (a single filtered sport) pulls today plus the next two days for that
+// page's day-by-day rail — three parallel requests instead of the eight a full week used to cost,
+// for a noticeably faster load at the price of the rail only covering three days instead of seven.
+// The "All" view and the featured banner stay narrower still (today+tomorrow).
+//
+// Each offset is still caught individually rather than left to reject the outer Promise.all: even
+// at three offsets in flight, each independently retrying across all of WATCHFOOTY_API_ORIGINS, one
+// date range having a bad time (already logged inside requestJson's own retries) shouldn't take the
+// whole sport's listing down with it, empty-handed, rather than just quietly missing that one day.
+async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offsets: number[] = [0, 1]): Promise<OriginTaggedMatch[]> {
+  // Not cacheable — a single day of one sport is already routinely 2-3MB+ (see the requestJson
+  // comment), past Next's per-entry Data Cache limit.
+  const results = await Promise.all(
+    offsets.map(async (offset) => {
+      try {
+        const { data, assetOrigin } = await requestJson<RawMatch[]>(`/matches/${sport}?date=${dateParam(offset)}`, signal, false);
+        return data.map((raw) => ({ raw, assetOrigin }));
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') throw err;
+        console.error(`fetchRawMatchesForSport: giving up on ${sport}/date=${dateParam(offset)} after exhausting every origin`, err);
+        return [];
+      }
+    })
+  );
   return results.flat();
 }
 
-const SPORT_PAGE_DATE_OFFSETS = [-1, 0, 1, 2, 3, 4, 5, 6];
+const SPORT_PAGE_DATE_OFFSETS = [0, 1, 2];
 
 export async function getMatches(sport = 'all', signal?: AbortSignal) {
   // Kicked off before awaiting WatchFooty below (rather than left to correctCricketMatchTimes to
@@ -271,10 +384,13 @@ export async function getMatches(sport = 'all', signal?: AbortSignal) {
   // correctCricketMatchTimes only ever started its fetch once WatchFooty's had already finished.
   if (sport === 'all' || sport === 'cricket') warmCricinfoCache(signal);
   const raw = await fetchRawMatchesForSport(sport, signal, SPORT_PAGE_DATE_OFFSETS);
-  const matches = dedupeMatches(raw.map((item) => normalizeMatch(item)).filter(Boolean) as Match[]);
+  const matches = dedupeMatches(raw.map(({ raw: item, assetOrigin }) => normalizeMatch(item, assetOrigin)).filter(Boolean) as Match[]);
   const corrected = await correctCricketMatchTimes(matches, signal);
   const withPosters = await dropPosterlessFightingMatches(corrected);
-  return applyListingFilters(withPosters, { windowDays: 7 });
+  // Matches windowDays to SPORT_PAGE_DATE_OFFSETS above (today + 2 days = 3) — raw data past that
+  // was never fetched in the first place now, so a wider window here wouldn't let anything more
+  // through anyway; keeping the two in sync just avoids a stale number that no longer means anything.
+  return applyListingFilters(withPosters, { windowDays: 3 });
 }
 
 // Fetches only the given sports (in parallel) instead of the combined `/matches/all` endpoint,
@@ -282,7 +398,12 @@ export async function getMatches(sport = 'all', signal?: AbortSignal) {
 export async function getMatchesForSports(sports: string[], signal?: AbortSignal) {
   if (sports.includes('cricket')) warmCricinfoCache(signal);
   const results = await Promise.all(sports.map((sport) => fetchRawMatchesForSport(sport, signal)));
-  const matches = dedupeMatches(results.flat().map((item) => normalizeMatch(item)).filter(Boolean) as Match[]);
+  const matches = dedupeMatches(
+    results
+      .flat()
+      .map(({ raw: item, assetOrigin }) => normalizeMatch(item, assetOrigin))
+      .filter(Boolean) as Match[]
+  );
   const corrected = await correctCricketMatchTimes(matches, signal);
   const withPosters = await dropPosterlessFightingMatches(corrected);
   return applyListingFilters(withPosters);
@@ -306,8 +427,8 @@ export async function getPopularMatches(date?: string, signal?: AbortSignal) {
   // callers that turn out to have no cricket in the results.
   warmCricinfoCache(signal);
   const query = date ? `?date=${date}` : '';
-  const data = await requestJson<RawMatch[]>(`/matches/popular${query}`, signal);
-  const matches = data.map((item) => normalizeMatch(item)).filter(Boolean) as Match[];
+  const { data, assetOrigin } = await requestJson<RawMatch[]>(`/matches/popular${query}`, signal);
+  const matches = data.map((item) => normalizeMatch(item, assetOrigin)).filter(Boolean) as Match[];
   const corrected = await correctCricketMatchTimes(matches, signal);
   const withPosters = await dropPosterlessFightingMatches(corrected);
   return applyListingFilters(withPosters, { allowStaleLiveOutsideWindow: false });
@@ -315,8 +436,8 @@ export async function getPopularMatches(date?: string, signal?: AbortSignal) {
 
 export async function getPopularLiveMatches(signal?: AbortSignal) {
   warmCricinfoCache(signal);
-  const data = await requestJson<RawMatch[]>('/matches/popular/live', signal);
-  const matches = data.map((item) => normalizeMatch(item)).filter(Boolean) as Match[];
+  const { data, assetOrigin } = await requestJson<RawMatch[]>('/matches/popular/live', signal);
+  const matches = data.map((item) => normalizeMatch(item, assetOrigin)).filter(Boolean) as Match[];
   const corrected = await correctCricketMatchTimes(matches, signal);
   const withPosters = await dropPosterlessFightingMatches(corrected);
   return applyListingFilters(withPosters, { allowStaleLiveOutsideWindow: false });
@@ -346,9 +467,9 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
   // The single-match endpoint is intermittently unreliable (404s or empty results for matches that
   // the listing endpoint returns fine), so fall back to searching the full listing before giving up.
   try {
-    const data = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
+    const { data, assetOrigin } = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
     const raw = Array.isArray(data) ? data[0] : data;
-    const match = raw && normalizeMatchDetails(raw, matchId);
+    const match = raw && normalizeMatchDetails(raw, assetOrigin, matchId);
     if (match) {
       const [corrected] = await correctCricketMatchTimes([match], signal);
       return correctStaleLiveCricket(corrected) as MatchDetails;
@@ -357,16 +478,18 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
     // fall through to the listing-based lookup below
   }
 
-  const listing = await requestJson<RawMatch[]>('/matches/all', signal);
+  // Not cacheable — the combined all-sports listing is the largest response this API returns.
+  const { data: listing, assetOrigin } = await requestJson<RawMatch[]>('/matches/all', signal, false);
   const raw = listing.find((item) => (item.matchId || item.id) === matchId);
-  const match = raw && normalizeMatchDetails(raw, matchId);
+  const match = raw && normalizeMatchDetails(raw, assetOrigin, matchId);
   if (!match) throw new Error('Match not found');
   const [corrected] = await correctCricketMatchTimes([match], signal);
   return correctStaleLiveCricket(corrected) as MatchDetails;
 }
 
 export async function getStreams(matchId: string, sportId?: string, signal?: AbortSignal) {
-  const data = await requestJson<RawMatch[]>(`/matches/${sportId || 'all'}`, signal);
+  // Not cacheable — same-sized listing as fetchRawMatchesForSport/getMatchDetails' fallback above.
+  const { data } = await requestJson<RawMatch[]>(`/matches/${sportId || 'all'}`, signal, false);
   const raw = data.find((item) => (item.matchId || item.id) === matchId);
   const streams = (raw?.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
   if (streams.length > 0 || !sportId) return streams;

@@ -1,49 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Match } from '../../types';
 import { useMarkNavigating } from '../../lib/navigation';
 import { Logo } from './Logo';
+import { SportsNav } from './SportsNav';
+import { SportsDrawer } from './SportsDrawer';
+import { SearchModal } from './SearchModal';
 
-const MAX_RESULTS = 5;
-
-// Self-contained: its own query state and its own filtered results, entirely separate from
-// whatever sport/date listing is showing on the page — it's a quick-jump popup, not a page filter.
-export function Header({ matches }: { matches: Match[] }) {
+export function Header({ matches, sport, onSportChange }: { matches: Match[]; sport: string; onSportChange: (value: string) => void }) {
   const markNavigating = useMarkNavigating();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const results = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (!term) return [];
-    return matches
-      .filter((match) => [match.title, match.homeTeam, match.awayTeam, match.competition].some((value) => value?.toLowerCase().includes(term)))
-      .slice(0, MAX_RESULTS);
-  }, [matches, query]);
-
-  // Closing on an outside click/Escape, rather than just on blur, so clicking a result inside the
-  // dropdown doesn't get raced by the input's own blur handler closing the panel first.
-  useEffect(() => {
-    if (!open) return;
-    const onOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('mousedown', onOutside);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onOutside);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  const closeAndClear = () => {
-    setOpen(false);
-    setQuery('');
-  };
 
   return (
     <header className="absolute top-0 inset-x-0 z-30 flex items-center justify-between w-full px-4 md:px-12 py-4 md:py-6 gap-4">
@@ -52,59 +16,18 @@ export function Header({ matches }: { matches: Match[] }) {
         <span className="text-base font-black italic tracking-tighter text-white">URHEILU</span>
       </Link>
 
-      <div ref={containerRef} className="relative shrink-0">
-        {open ? (
-          <div className="flex items-center gap-2 bg-brand-surface border border-white/15 px-3 py-2 w-64 md:w-80">
-            <span className="material-symbols-outlined text-gray-400 text-lg!">search</span>
-            <input
-              autoFocus
-              aria-label="Search matches"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search teams, competitions..."
-              className="w-full bg-transparent text-sm text-white placeholder:text-gray-500 focus:outline-none"
-            />
-            {query && (
-              <button aria-label="Clear search" onClick={closeAndClear} className="shrink-0 text-gray-400 hover:text-white cursor-pointer">
-                <span className="material-symbols-outlined text-lg!">close</span>
-              </button>
-            )}
-          </div>
-        ) : (
-          <button
-            aria-label="Search matches"
-            onClick={() => setOpen(true)}
-            className="w-10 h-10 flex items-center justify-center border border-white/15 bg-black/40 backdrop-blur-sm text-white hover:border-white/40 transition-colors cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-lg!">search</span>
-          </button>
-        )}
+      {/* SportsNav (full text-link row) only fits from `lg:` up — below that SportsDrawer takes
+          over, collapsing the same list behind a hamburger button instead. Both always render;
+          which one is visible is pure CSS (`lg:hidden`/`hidden lg:flex`), not a JS breakpoint check,
+          so there's nothing here that can mismatch between server and client render. */}
+      <SportsNav sport={sport} onChange={onSportChange} className="hidden lg:flex flex-1 justify-center" />
 
-        {open && query.trim() && (
-          <div className="absolute right-0 -mt-px w-64 md:w-80 bg-brand-surface border border-t-0 border-brand-border shadow-2xl">
-            {results.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-gray-400 text-center">No matches found.</p>
-            ) : (
-              results.map((match) => (
-                <Link
-                  key={match.id}
-                  href={`/match/${encodeURIComponent(match.id)}`}
-                  onClick={() => {
-                    markNavigating();
-                    closeAndClear();
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 transition-colors cursor-pointer border-b border-brand-border last:border-b-0"
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${match.isLive ? 'bg-brand-live' : 'bg-gray-600'}`} />
-                  <span className="min-w-0">
-                    <span className="block text-sm text-white truncate">{match.title}</span>
-                    {match.competition && <span className="block text-xs text-gray-500 truncate">{match.competition}</span>}
-                  </span>
-                </Link>
-              ))
-            )}
-          </div>
-        )}
+      <div className="flex items-center gap-2 shrink-0">
+        <SearchModal matches={matches} />
+        {/* Right of search on mobile (its icon-button styling matches — see the comment there),
+            not between logo and search — the sheet it opens still slides down from the top of the
+            screen regardless of where the button that opens it sits. */}
+        <SportsDrawer sport={sport} onChange={onSportChange} />
       </div>
     </header>
   );

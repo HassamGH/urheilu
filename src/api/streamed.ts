@@ -20,8 +20,10 @@ type RawStreamedStream = {
   source: string;
 };
 
+// See the matching comment on watchfooty.ts's requestJson — same server-side Data Cache reasoning,
+// same 20s TTL so this never lags behind what that cache already tolerates.
 async function requestJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${STREAMED_BASE}${path}`, { signal });
+  const response = await fetch(`${STREAMED_BASE}${path}`, { signal, next: { revalidate: 20 } });
   if (!response.ok) throw new Error(`Streamed request failed: ${response.status}`);
   return response.json() as Promise<T>;
 }

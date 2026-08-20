@@ -67,8 +67,14 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
           className="absolute inset-0 w-full h-full object-cover opacity-45"
         />
       )}
+      {/* The vertical scrim alone (text sits at the bottom, full-width on a narrow viewport) is
+          enough for legibility on mobile — the horizontal one layered on top of it was built for
+          desktop, where the text column only occupies the left portion of a much wider banner and
+          the gradient's "to-transparent" end has room to actually reveal the poster on the right.
+          On a phone-width slide that transition has no room to run in, so it read as just another
+          coat of black stacked on the vertical scrim, leaving the poster almost entirely hidden. */}
       <div className="absolute inset-0 bg-linear-to-t from-black via-black/80 to-black/30" />
-      <div className="absolute inset-0 bg-linear-to-r from-black via-black/40 to-transparent" />
+      <div className="absolute inset-0 hidden md:block bg-linear-to-r from-black via-black/40 to-transparent" />
 
       {/* Plain content, not a link/button — the poster, teams, and title are just what this slide
           is about, not an affordance to click. The only actionable control is the CTA button
