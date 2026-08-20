@@ -17,27 +17,7 @@ const INTERNATIONAL_TEAMS = new Set([
   'ireland', 'ire',
   'zimbabwe', 'zim',
   'scotland', 'sco',
-  'netherlands', 'ned',
-  'nepal', 'nep',
-  'usa', 'united states', 'us',
-  'uae', 'united arab emirates',
-  'canada', 'can',
-  'namibia', 'nam',
-  'oman',
-  'papua new guinea', 'png',
-  'kenya', 'ken',
-  'uganda', 'uga',
-  'germany', 'ger',
-  'italy', 'ita',
-  'spain', 'esp',
-  'jersey', 'jer',
-  'bermuda', 'ber',
-  'hong kong', 'hk',
-  'singapore', 'sin',
-  'malaysia', 'mal',
-  'qatar', 'qat',
-  'bahrain', 'bhr',
-  'kuwait', 'kwt'
+  'namibia', 'nam'
 ]);
 
 const SUFFIXES_TO_STRIP = [' emerging', ' emerging team', ' a team', ' xi', ' under-19', ' under 19', ' u19', ' women', ' w'];

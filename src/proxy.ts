@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { UNAUTHORIZED_HTML } from './UNAUTHORIZED_PAGE';
 
 // Everything requires valid credentials EXCEPT a small set of purely public, non-sensitive static
 // assets — manifest.webmanifest, sw.js, favicon.svg, icons/* — that a browser fetches outside the
@@ -13,12 +14,15 @@ export const config = {
 
 const REALM = 'Urheilu';
 
+// Only shown as the page behind the browser's native Basic Auth dialog (and again if the user
+// cancels it or enters a wrong password) — the browser owns the credential prompt itself, this is
+// just what's visible around/after it. Markup lives in UNAUTHORIZED_PAGE.ts, see there for why.
 function unauthorized(): Response {
-  return new Response('Authentication required.', {
+  return new Response(UNAUTHORIZED_HTML, {
     status: 401,
     headers: {
       'WWW-Authenticate': `Basic realm="${REALM}", charset="UTF-8"`,
-      'content-type': 'text/plain',
+      'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store'
     }
   });
