@@ -109,6 +109,13 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
   const visibleMatches = matches.data?.matches || [];
   const liveMatches = useMemo(() => sortMatches(visibleMatches.filter((match) => match.isLive)), [visibleMatches]);
   const featuredMatches = useMemo(() => orderFeaturedMatches(featured.data || []), [featured.data]);
+  // A single-sport view has no separate rail for matches that have already kicked off and finished
+  // without ever showing as live (a status the upstream API doesn't always update promptly) — without
+  // this filter they'd sit at the top of the date list forever, ahead of the actually upcoming games.
+  const upcomingOrLiveMatches = useMemo(
+    () => visibleMatches.filter((match) => match.isLive || !match.startTime || new Date(match.startTime).getTime() >= Date.now()),
+    [visibleMatches]
+  );
   // Live matches are excluded here since they already have their own "Live Now" rail above —
   // without this, a live match (e.g. a Premier League fixture kicking off) would render a second
   // time in its sport's section too, reading as the same game shown twice.
@@ -127,7 +134,8 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
   // of tearing it down and rebuilding it, which is what caused the banner/filter to visibly jump.
   const showFeaturedSkeleton = featured.loading && featuredMatches.length === 0;
   const showListError = matches.error && !matches.data;
-  const showEmptyState = !matches.loading && !matches.error && visibleMatches.length === 0;
+  const showEmptyState =
+    !matches.loading && !matches.error && (displayedSport === 'all' ? visibleMatches.length === 0 : upcomingOrLiveMatches.length === 0);
 
   return (
     <div className="min-h-screen bg-brand-bg text-white">
@@ -144,7 +152,7 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
         {displayedSport === 'all' && sectionedMatches.map((section) => (
           <MatchRail key={section.title} title={section.title} matches={section.matches} />
         ))}
-        {displayedSport !== 'all' && visibleMatches.length > 0 && <MatchesByDate matches={visibleMatches} />}
+        {displayedSport !== 'all' && upcomingOrLiveMatches.length > 0 && <MatchesByDate matches={upcomingOrLiveMatches} />}
       </main>
     </div>
   );

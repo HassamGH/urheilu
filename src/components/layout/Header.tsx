@@ -13,7 +13,6 @@ export function Header({ matches, sport, onSportChange }: { matches: Match[]; sp
     <header className="absolute top-0 inset-x-0 z-30 flex items-center justify-between w-full px-4 md:px-12 py-4 md:py-6 gap-4">
       <Link href="/" className="flex items-center gap-1 shrink-0 cursor-pointer" onClick={markNavigating}>
         <Logo className="w-7 h-7" />
-        <span className="text-base font-black italic tracking-tighter text-white">URHEILU</span>
       </Link>
 
       {/* SportsNav (full text-link row) only fits from `lg:` up — below that SportsDrawer takes
