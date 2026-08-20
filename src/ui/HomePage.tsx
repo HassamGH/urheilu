@@ -97,9 +97,13 @@ export function HomePage({ sport: initialSport, initialMatches, initialFeatured 
   const visibleMatches = matches.data?.matches || [];
   const liveMatches = useMemo(() => sortMatches(visibleMatches.filter((match) => match.isLive)), [visibleMatches]);
   const featuredMatches = useMemo(() => orderFeaturedMatches(featured.data || []), [featured.data]);
+  // Live matches are excluded here since they already have their own "Live Now" rail above —
+  // without this, a live match (e.g. a Premier League fixture kicking off) would render a second
+  // time in its sport's section too, reading as the same game shown twice.
   const sectionedMatches = useMemo(() => {
     const groups = new Map<string, Match[]>();
     visibleMatches.forEach((match) => {
+      if (match.isLive) return;
       const key = match.sportId || 'Other';
       groups.set(key, [...(groups.get(key) || []), match]);
     });

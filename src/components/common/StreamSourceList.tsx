@@ -8,6 +8,14 @@ const QUALITY_BADGE_STYLE: Record<string, string> = {
   SD: 'bg-gray-500 text-black'
 };
 
+const STREAM_TYPE_ICON: Record<Stream['type'], string> = {
+  hls: 'live_tv',
+  dash: 'live_tv',
+  video: 'smart_display',
+  embed: 'open_in_new',
+  unknown: 'play_circle'
+};
+
 export function StreamSourceList({
   groups,
   matchId,
@@ -19,14 +27,21 @@ export function StreamSourceList({
 }) {
   const markNavigating = useMarkNavigating();
   return (
-    <div className="grid gap-1">
+    <div className="grid gap-6">
       {groups.map((group) => (
-        <section key={group.quality} className="border border-brand-border bg-brand-surface">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-brand-border">
-            <h2 className="text-xs font-bold tracking-wider text-gray-300 uppercase">{group.quality} Sources</h2>
-            <span className="text-xs text-gray-500">{group.streams.length} source{group.streams.length === 1 ? '' : 's'}</span>
+        <section key={group.quality}>
+          <div className="flex items-center gap-3 mb-3">
+            <span className={`shrink-0 px-2 py-0.5 text-[11px] font-black tracking-wide ${QUALITY_BADGE_STYLE[group.quality] || 'bg-gray-600 text-white'}`}>
+              {group.quality}
+            </span>
+            <h2 className="shrink-0 text-xs font-bold tracking-wider text-gray-400 uppercase">Sources</h2>
+            <span className="shrink-0 text-xs text-gray-500">
+              {group.streams.length} available
+            </span>
+            <div className="h-px flex-1 bg-brand-border" />
           </div>
-          <div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {group.streams.map((stream, index) => {
               const isSelected = stream.id === selectedStreamId;
               return (
@@ -34,25 +49,42 @@ export function StreamSourceList({
                   key={stream.id}
                   href={`/match/${encodeURIComponent(matchId)}/stream/${encodeURIComponent(stream.id)}`}
                   onClick={markNavigating}
-                  className={`w-full flex items-center justify-between gap-3 px-4 py-3 border-t border-brand-border first:border-t-0 transition-colors cursor-pointer text-left ${isSelected ? 'bg-white/10' : 'hover:bg-white/5'}`}
+                  className={`group relative flex flex-col gap-2.5 border p-4 transition-colors cursor-pointer ${
+                    isSelected ? 'border-white bg-white/10' : 'border-brand-border bg-brand-surface hover:border-white/40'
+                  }`}
                 >
-                  <span className="flex items-center gap-3 min-w-0">
-                    <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${QUALITY_BADGE_STYLE[group.quality] || 'bg-gray-600 text-white'}`}>
-                      {group.quality}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2">
-                        <span className="font-semibold text-sm">SERVER [{index + 1}]</span>
-                        {isSelected && <span className="text-[10px] text-brand-live font-bold uppercase tracking-wide shrink-0">Playing</span>}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="material-symbols-outlined text-lg! text-gray-500 group-hover:text-white transition-colors shrink-0">
+                        {STREAM_TYPE_ICON[stream.type]}
                       </span>
-                      {stream.sourceLabel && (
-                        <span className="block text-xs text-gray-500 truncate" title={`Unconfirmed match — labeled "${stream.sourceLabel}" at the source`}>
-                          {stream.sourceLabel}
-                        </span>
-                      )}
+                      <span className="font-bold text-sm truncate">Server {index + 1}</span>
                     </span>
-                  </span>
-                  <span className="text-xs text-gray-500 font-medium">{languageTag(stream.language)}</span>
+                    <span className="shrink-0 text-[10px] font-bold text-gray-500 uppercase tracking-wide">{languageTag(stream.language)}</span>
+                  </div>
+
+                  {stream.sourceLabel && (
+                    <span
+                      className="block text-xs text-gray-500 truncate"
+                      title={`Unconfirmed match — labeled "${stream.sourceLabel}" at the source`}
+                    >
+                      {stream.sourceLabel}
+                    </span>
+                  )}
+
+                  <div className="mt-auto pt-0.5">
+                    {isSelected ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-brand-live">
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-live animate-pulse" />
+                        Playing
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-gray-500 group-hover:text-white transition-colors">
+                        <span className="material-symbols-outlined text-sm!">play_arrow</span>
+                        Watch
+                      </span>
+                    )}
+                  </div>
                 </Link>
               );
             })}
