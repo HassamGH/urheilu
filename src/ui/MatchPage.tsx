@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { getMatchDetails, getStreams } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
 import type { Match, Stream } from '../types';
@@ -19,6 +19,13 @@ import { MatchupDivider } from '../components/home/MatchupDivider';
 function MatchHeader({ match }: { match: Match }) {
   const isEvent = !match.homeTeam && !match.awayTeam;
   const fallback = CARD_FALLBACK_BACKGROUNDS[hashString(match.id) % CARD_FALLBACK_BACKGROUNDS.length];
+  // Mirrors MatchCard/FeaturedMatchBanner's own team-logo handling: a lone crest next to a
+  // lettered-initial placeholder for the other team reads as broken, so the pair only renders once
+  // BOTH crests are actually available — dropped the instant either fails to load (see the onFail
+  // wiring below) — rather than ever falling back to showing initials.
+  const [homeLogoFailed, setHomeLogoFailed] = useState(false);
+  const [awayLogoFailed, setAwayLogoFailed] = useState(false);
+  const hasBothTeamLogos = Boolean(match.homeTeamLogo) && Boolean(match.awayTeamLogo) && !homeLogoFailed && !awayLogoFailed;
 
   return (
     <div className="relative h-56 md:h-72 overflow-hidden border-b border-brand-border bg-black">
@@ -28,15 +35,20 @@ function MatchHeader({ match }: { match: Match }) {
           <div className="absolute inset-0 bg-linear-to-t from-black via-black/70 to-black/30" />
         </>
       ) : (
-        <CardBackdrop homeSrc={match.homeTeamLogo} awaySrc={match.awayTeamLogo} fallback={fallback} />
+        <CardBackdrop
+          homeSrc={hasBothTeamLogos ? match.homeTeamLogo : undefined}
+          awaySrc={hasBothTeamLogos ? match.awayTeamLogo : undefined}
+          fallback={fallback}
+          brand={false}
+        />
       )}
 
       <div className="relative z-10 w-full h-full max-w-6xl mx-auto px-4 md:px-12 py-6 flex flex-col justify-end">
-        {!isEvent && (
+        {!isEvent && hasBothTeamLogos && (
           <div className="flex items-center gap-4 md:gap-6 mb-4">
-            <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} priority />
+            <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} priority onFail={() => setHomeLogoFailed(true)} />
             <MatchupDivider match={match} priority />
-            <TeamLogo src={match.awayTeamLogo} name={match.awayTeam} fallback={teamInitial(match.awayTeam, match.title, 1)} priority />
+            <TeamLogo src={match.awayTeamLogo} name={match.awayTeam} fallback={teamInitial(match.awayTeam, match.title, 1)} priority onFail={() => setAwayLogoFailed(true)} />
           </div>
         )}
 

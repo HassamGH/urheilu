@@ -17,13 +17,34 @@ import { useEffect, useRef, useState } from 'react';
 // reaches `onError` at all. The `useEffect` below closes that gap by checking, right on mount,
 // whether the browser already knows the load failed (`complete && naturalWidth === 0`) — the same
 // signal a real error event carries, just read directly instead of waited for.
-export function TeamLogo({ src, name, fallback, priority }: { src?: string; name?: string; fallback: string; priority?: boolean }) {
+export function TeamLogo({
+  src,
+  name,
+  fallback,
+  priority,
+  onFail
+}: {
+  src?: string;
+  name?: string;
+  fallback: string;
+  priority?: boolean;
+  // Notified on every path that lands on the initials fallback (both the onError below and the
+  // pre-hydration check in the effect) — lets a caller that doesn't want the initials fallback ever
+  // shown (see MatchCard) react by swapping the whole card over to something else instead.
+  onFail?: () => void;
+}) {
   const [failed, setFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
+  const fail = () => {
+    setFailed(true);
+    onFail?.();
+  };
+
   useEffect(() => {
     const img = imgRef.current;
-    if (img && img.complete && img.naturalWidth === 0) setFailed(true);
+    if (img && img.complete && img.naturalWidth === 0) fail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
 
   if (src && !failed) {
@@ -37,7 +58,7 @@ export function TeamLogo({ src, name, fallback, priority }: { src?: string; name
         loading={priority ? 'eager' : 'lazy'}
         decoding="async"
         fetchPriority={priority ? 'high' : undefined}
-        onError={() => setFailed(true)}
+        onError={fail}
       />
     );
   }

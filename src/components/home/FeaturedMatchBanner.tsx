@@ -44,6 +44,13 @@ function animateScrollTo(el: HTMLElement, target: number, duration = SLIDE_DURAT
 
 function FeaturedSlide({ match, priority }: { match: Match; priority: boolean }) {
   const markNavigating = useMarkNavigating();
+  // Mirrors MatchCard's own team-logo handling: a lone crest next to a lettered-initial placeholder
+  // for the other team reads as broken, so the pair only renders once BOTH crests are actually
+  // available — dropped the instant either fails to load (see the onFail wiring below) — rather than
+  // ever falling back to showing initials.
+  const [homeLogoFailed, setHomeLogoFailed] = useState(false);
+  const [awayLogoFailed, setAwayLogoFailed] = useState(false);
+  const hasBothTeamLogos = Boolean(match.homeTeamLogo) && Boolean(match.awayTeamLogo) && !homeLogoFailed && !awayLogoFailed;
   const label = match.isLive ? 'Live Now' : 'Featured';
   // `status` is a raw API code ("in", "live") rather than display text, so it's only worth showing
   // when the feed gives us something more descriptive than that.
@@ -80,11 +87,13 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
           is about, not an affordance to click. The only actionable control is the CTA button
           below, so that's the only place a click does anything. */}
       <div className="relative z-10 w-full h-full px-5 md:px-12 py-8 md:py-10 flex flex-col justify-end">
-        <div className="flex shrink-0 items-center gap-4 md:gap-6 mb-6">
-          <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} priority={priority} />
-          <MatchupDivider match={match} size="lg" priority={priority} />
-          <TeamLogo src={match.awayTeamLogo} name={match.awayTeam} fallback={teamInitial(match.awayTeam, match.title, 1)} priority={priority} />
-        </div>
+        {hasBothTeamLogos && (
+          <div className="flex shrink-0 items-center gap-4 md:gap-6 mb-6">
+            <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} priority={priority} onFail={() => setHomeLogoFailed(true)} />
+            <MatchupDivider match={match} size="lg" priority={priority} />
+            <TeamLogo src={match.awayTeamLogo} name={match.awayTeam} fallback={teamInitial(match.awayTeam, match.title, 1)} priority={priority} onFail={() => setAwayLogoFailed(true)} />
+          </div>
+        )}
 
         <div className="flex shrink-0 flex-nowrap overflow-hidden items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-gray-300">
           <span className={`inline-flex items-center gap-1.5 shrink-0 ${match.isLive ? 'text-brand-live' : 'text-white'}`}>

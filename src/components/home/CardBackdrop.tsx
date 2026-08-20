@@ -1,10 +1,23 @@
 import { Logo } from '../layout/Logo';
 
-export function CardBackdrop({ homeSrc, awaySrc, fallback }: { homeSrc?: string; awaySrc?: string; fallback: string }) {
+export function CardBackdrop({
+  homeSrc,
+  awaySrc,
+  fallback,
+  brand = true
+}: {
+  homeSrc?: string;
+  awaySrc?: string;
+  fallback: string;
+  // Lets a caller that doesn't want the branded placeholder at all (see MatchPage's MatchHeader)
+  // opt out and fall through to the bare color gradient instead — on by default since most callers
+  // (MatchCard) do want a real poster substituted for one.
+  brand?: boolean;
+}) {
   // Neither side has a crest to blur into the backdrop (single-event fixtures, or a match whose
   // teams have no logo asset) — rather than leave the card as a bare color gradient, brand it like
   // a real poster: our own mark over the same blurred-gradient backdrop other cards use.
-  const showBrandedPoster = !homeSrc && !awaySrc;
+  const showBrandedPoster = brand && !homeSrc && !awaySrc;
 
   return (
     <div className="absolute inset-0 overflow-hidden" style={{ backgroundImage: fallback, backgroundColor: '#0d0d0e' }}>

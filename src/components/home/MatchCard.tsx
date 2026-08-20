@@ -19,10 +19,13 @@ export function MatchCard({ match }: { match: Match }) {
   const isEvent = !match.homeTeam && !match.awayTeam;
   // Showing just one crest (or none) next to a lettered-initial placeholder for the other team read
   // as broken rather than "no poster yet" — so a two-team match only gets the crest-overlay
-  // treatment when BOTH crests are actually available. Missing either one falls through to the same
-  // branded urheilu poster CardBackdrop already shows for genuinely teamless events, instead of ever
-  // rendering an initials fallback.
-  const hasBothTeamLogos = Boolean(match.homeTeamLogo) && Boolean(match.awayTeamLogo);
+  // treatment when BOTH crests are actually available, and it's dropped the instant either one fails
+  // to load (see the onFail wiring on the TeamLogo elements below). Losing either falls through to
+  // the same branded urheilu poster CardBackdrop already shows for genuinely teamless events, instead
+  // of ever rendering an initials fallback.
+  const [homeLogoFailed, setHomeLogoFailed] = useState(false);
+  const [awayLogoFailed, setAwayLogoFailed] = useState(false);
+  const hasBothTeamLogos = Boolean(match.homeTeamLogo) && Boolean(match.awayTeamLogo) && !homeLogoFailed && !awayLogoFailed;
   // The API supplies a real poster for most fixtures, not just single-event cards — prefer it as
   // the backdrop over the hand-picked gradients in cardBackgrounds.ts, which are only a fallback
   // for the (usually team-vs-team) matches that have no poster at all.
@@ -107,9 +110,9 @@ export function MatchCard({ match }: { match: Match }) {
           </div>
           {!isEvent && !showPoster && hasBothTeamLogos && (
             <div className="absolute inset-0 flex items-center justify-center gap-6">
-              <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} />
+              <TeamLogo src={match.homeTeamLogo} name={match.homeTeam} fallback={teamInitial(match.homeTeam, match.title, 0)} onFail={() => setHomeLogoFailed(true)} />
               <MatchupDivider match={match} />
-              <TeamLogo src={match.awayTeamLogo} name={match.awayTeam} fallback={teamInitial(match.awayTeam, match.title, 1)} />
+              <TeamLogo src={match.awayTeamLogo} name={match.awayTeam} fallback={teamInitial(match.awayTeam, match.title, 1)} onFail={() => setAwayLogoFailed(true)} />
             </div>
           )}
         </div>
