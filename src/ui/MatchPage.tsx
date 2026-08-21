@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getMatchDetails, getStreams } from '../api/watchfooty';
 import { useAsync } from '../api/useAsync';
 import type { Match, Stream } from '../types';
@@ -85,6 +85,23 @@ export function MatchPage({ matchId, initialMatch, initialStreams }: { matchId: 
   const match = useAsync((signal) => getMatchDetails(matchId, signal), [matchId], initialMatch);
   const streams = useAsync((signal) => getStreams(matchId, match.data?.sportId, signal), [matchId, match.data?.sportId], initialStreams);
   const groups = groupStreamsByQuality(streams.data || []);
+
+  // An empty `initialStreams` isn't reliably "no streams exist" — this route is ISR-cached
+  // (`revalidate = 20` on the page itself), so it can just as easily mean "the cached render was
+  // generated before WatchFooty listed any." The client-side retry below goes through the
+  // `/api/watchfooty/*` proxy, a live fetch with no ISR involved, so it's the only way to actually
+  // tell the two apart. The first check fires immediately on mount rather than waiting 15s, since
+  // stale-cache emptiness (not genuine emptiness) is the common case right after a match goes live.
+  const hasCheckedFreshness = useRef(false);
+  useEffect(() => {
+    if (streams.loading || streams.error || groups.length > 0) return;
+    const delay = hasCheckedFreshness.current ? 15000 : 0;
+    const id = setTimeout(() => {
+      hasCheckedFreshness.current = true;
+      streams.retry();
+    }, delay);
+    return () => clearTimeout(id);
+  }, [streams.loading, streams.error, groups.length, streams.retry]);
 
   return (
     <div className="min-h-screen bg-brand-bg text-white">

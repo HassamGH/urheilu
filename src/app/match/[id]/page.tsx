@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import { getMatchDetails, getStreams } from '../../../api/watchfooty';
 import { MatchPage } from '../../../ui/MatchPage';
 
@@ -11,7 +12,16 @@ export const revalidate = 20;
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const matchId = decodeURIComponent(id);
-  const match = await getMatchDetails(matchId);
+
+  // getMatchDetails throwing means "this specific match is gone" (rolled off the listing, bad id),
+  // not an API outage — routing it to notFound() instead of letting it reach app/error.tsx keeps a
+  // single missing fixture from rendering the site-wide "Scores are offline" page.
+  let match;
+  try {
+    match = await getMatchDetails(matchId);
+  } catch {
+    notFound();
+  }
   const streams = await getStreams(matchId, match.sportId);
 
   return <MatchPage matchId={matchId} initialMatch={match} initialStreams={streams} />;

@@ -129,6 +129,22 @@ function toError(err: unknown): Error {
   return new Error(err instanceof Error ? err.message : String(err));
 }
 
+// Shared classification for every place a failed upstream fetch gets logged/reported, so the same
+// underlying failure reads the same way everywhere instead of each call site inventing its own
+// label. TIMEOUT is our own withOriginTimeout firing (origin never answered at all). ABORTED covers
+// the connection dropping mid-response — "The destination stream closed early" and its relatives
+// (ECONNRESET, "socket hang up") all mean the same thing: something between us and the origin closed
+// the pipe before the body finished, most often because the client that originally asked for this
+// page navigated away or the app was backgrounded (common on mobile PWAs) and Next canceled the
+// in-flight render — not a WatchFooty outage, so it gets its own label rather than folding into the
+// generic ERROR bucket a real 4xx/5xx/DNS failure gets.
+function classifyFetchError(err: unknown): { label: string; status: number } {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/timeout|timed out/i.test(message)) return { label: 'TIMEOUT', status: 504 };
+  if (/closed early|aborted|econnreset|socket hang up/i.test(message)) return { label: 'ABORTED', status: 499 };
+  return { label: 'ERROR', status: 500 };
+}
+
 async function requestJson<T>(path: string, signal?: AbortSignal, cacheable = true): Promise<ApiResult<T>> {
   if (typeof window === 'undefined') {
     let lastError: Error | undefined;
@@ -146,7 +162,20 @@ async function requestJson<T>(path: string, signal?: AbortSignal, cacheable = tr
         // wants anymore would just be wasted work. `signal` here is never the per-origin timeout
         // signal created above, so a timeout firing falls through to the next origin like any other
         // failure instead of being mistaken for that.
-        if (signal?.aborted) throw err;
+        //
+        // What actually gets caught here in that case is often a raw Node/undici error mid-body-read
+        // ("The destination stream closed early" and its relatives) rather than the caller's own
+        // AbortError — the fetch to WatchFooty was still streaming its response in when the outer
+        // signal fired, so the read itself throws whatever shape undici happens to use, not a clean
+        // Error. Always normalize through toError before it leaves this function (same reason as the
+        // DOMException handling above), classified/logged the same way fetchRawMatchesForSport labels
+        // its own failures, so this never surfaces as an unlabeled crash with just a Next digest.
+        if (signal?.aborted) {
+          const normalized = toError(err);
+          const { label } = classifyFetchError(normalized);
+          console.warn(` ${ANSI_RED}WARN${ANSI_RESET} GET ${path} ${ANSI_RED}[${label}]${ANSI_RESET} client disconnected mid-request`);
+          throw normalized;
+        }
         lastError = toError(err);
       }
     }
@@ -363,16 +392,28 @@ type OriginTaggedMatch = { raw: RawMatch; assetOrigin: string };
 const ANSI_RED = '\x1b[31m';
 const ANSI_RESET = '\x1b[0m';
 
+// Last-known-good result per `sport:offset`, kept purely in server-process memory (this endpoint is
+// never cacheable via Next's Data Cache — see below — so there'd otherwise be nothing to fall back
+// to). All three WATCHFOOTY_API_ORIGINS occasionally go quiet for the same date/sport at once for a
+// few seconds; without this, that single unlucky poll returns an empty page and every match for that
+// day blinks out of the listing until the next successful ISR revalidation happens to land clean.
+// Falling back to the last good snapshot instead means a transient blip is invisible to visitors —
+// they see slightly stale data for one cycle rather than a match vanishing and reappearing.
+const lastGoodMatchesBySportOffset = new Map<string, OriginTaggedMatch[]>();
+
 async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offsets: number[] = [0, 1]): Promise<OriginTaggedMatch[]> {
   // Not cacheable — a single day of one sport is already routinely 2-3MB+ (see the requestJson
   // comment), past Next's per-entry Data Cache limit.
   const results = await Promise.all(
     offsets.map(async (offset) => {
+      const cacheKey = `${sport}:${offset}`;
       const path = `/matches/${sport}?date=${dateParam(offset)}`;
       const start = Date.now();
       try {
         const { data, assetOrigin } = await requestJson<RawMatch[]>(path, signal, false);
-        return data.map((raw) => ({ raw, assetOrigin }));
+        const tagged = data.map((raw) => ({ raw, assetOrigin }));
+        lastGoodMatchesBySportOffset.set(cacheKey, tagged);
+        return tagged;
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') throw err;
         // `warn`, not `error`: every origin timing out for one date/sport just means that one
@@ -387,20 +428,18 @@ async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offs
         // Duration formatted the same way Next's own request log switches from `123ms` to `4.1s` past
         // one second, so a slow-but-not-timed-out entry (a real 5s+ origin hang) reads consistently
         // next to Next's own lines instead of standing out as a raw millisecond count.
-        const message = err instanceof Error ? err.message : String(err);
-        const isTimeout = /timeout|timed out/i.test(message);
-        // 504, not a bare 500, when every origin timed out: this app is acting as the gateway
-        // waiting on an upstream (WatchFooty) that never answered in time — the exact case 504 is
-        // for. A non-timeout failure (a real 4xx/5xx from the origin, DNS failure, etc.) stays 500
-        // since there's no single more-specific code that fits every one of those.
-        const status = isTimeout ? 504 : 500;
-        const label = isTimeout ? 'TIMEOUT' : 'ERROR';
+        const { status, label } = classifyFetchError(err);
         const elapsed = Date.now() - start;
         const duration = elapsed >= 1000 ? `${(elapsed / 1000).toFixed(1)}s` : `${elapsed}ms`;
+        const fallback = lastGoodMatchesBySportOffset.get(cacheKey);
         // `WARN` level prefix — the pino/winston convention — makes this greppable/filterable by
         // severity the way a bare Next-style request line (no level marker) isn't.
-        console.warn(` ${ANSI_RED}WARN${ANSI_RESET} GET ${path} ${ANSI_RED}${status}${ANSI_RESET} in ${duration} ${ANSI_RED}[${label}]${ANSI_RESET}`);
-        return [];
+        console.warn(
+          ` ${ANSI_RED}WARN${ANSI_RESET} GET ${path} ${ANSI_RED}${status}${ANSI_RESET} in ${duration} ${ANSI_RED}[${label}]${ANSI_RESET}${
+            fallback ? ' — serving last-known-good snapshot' : ''
+          }`
+        );
+        return fallback || [];
       }
     })
   );
@@ -527,9 +566,35 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
 
 export async function getStreams(matchId: string, sportId?: string, signal?: AbortSignal) {
   // Not cacheable — same-sized listing as fetchRawMatchesForSport/getMatchDetails' fallback above.
-  const { data } = await requestJson<RawMatch[]>(`/matches/${sportId || 'all'}`, signal, false);
-  const raw = data.find((item) => (item.matchId || item.id) === matchId);
-  const streams = (raw?.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
+  // A failure here (e.g. a single timed-out origin, common on mobile PWA resume) means "streams
+  // unknown", not "every source is down" — so it degrades to the streamed.pk fallback below rather
+  // than throwing and taking the whole match page down with it.
+  let raw: RawMatch | undefined;
+  try {
+    const { data } = await requestJson<RawMatch[]>(`/matches/${sportId || 'all'}`, signal, false);
+    raw = data.find((item) => (item.matchId || item.id) === matchId);
+  } catch {
+    raw = undefined;
+  }
+  let streams = (raw?.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
+
+  // The listing endpoint doesn't always carry every match that exists — the mirror image of the
+  // problem getMatchDetails already works around (a single-match 404 where the listing has it fine):
+  // here it's the listing missing a match the single-match endpoint knows about in full, streams
+  // included. Confirmed in practice — a live PL match with 6 working stream links on `/match/{id}`
+  // was simply absent from `/matches/football` on every date checked. Only worth trying when the
+  // listing came up empty, since it's a second full request.
+  if (streams.length === 0) {
+    try {
+      const { data } = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
+      const single = Array.isArray(data) ? data[0] : data;
+      streams = (single?.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
+      raw ||= single;
+    } catch {
+      // fall through to the streamed.pk fallback below
+    }
+  }
+
   if (streams.length > 0 || !sportId) return streams;
 
   // WatchFooty has nothing for this match, for any sport — fall back to whatever streamed.pk
