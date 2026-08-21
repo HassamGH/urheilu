@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import '../styles.css';
 import { ServiceWorkerRegistration } from './service-worker-registration';
 import { NavigationProgress } from '../lib/navigation';
@@ -20,6 +21,24 @@ const inter = Inter({
   variable: '--font-inter'
 });
 
+// `next/font/google` (used for Inter above) wasn't an option here: Material Symbols is a variable
+// icon font pinned to one exact wght/FILL combination via the old URL's `@400,0`, and next/font's
+// google-axis handling is built around ordinary text fonts' weight/style — there was no confirmed-
+// safe way to carry that exact pinning through it without risking every icon silently rendering as
+// the wrong glyph. `next/font/local` sidesteps that concern entirely: `src/fonts/material-symbols-
+// outlined.woff2` is the literal static file Google's own css2 API serves for this exact `wght,
+// FILL@400,0` request (fetched directly from the same `fonts.gstatic.com` URL the old `<link>`
+// pulled at runtime) — self-hosting the identical bytes, not re-deriving them, so there's no axis-
+// pinning risk to begin with. Same self-hosting payoff as Inter: no external DNS/TLS/CSS-then-font
+// round trip on first load.
+const materialSymbols = localFont({
+  src: '../fonts/material-symbols-outlined.woff2',
+  display: 'swap',
+  weight: '400',
+  style: 'normal',
+  variable: '--font-material-symbols'
+});
+
 export const metadata: Metadata = {
   title: 'Urheilu',
   description: 'Live sports streams across football, basketball, cricket, and more.',
@@ -38,12 +57,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${materialSymbols.variable}`}>
       <head>
-        {/* Inter no longer needs these (self-hosted via next/font, see above) — Material Symbols is
-            the only thing left still loaded from Google Fonts directly. */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         {/* The actual data/image origins the app talks to directly (see WATCHFOOTY_API_ORIGINS in
             watchfooty.ts, ESPN_BASE in cricinfo.ts, STREAMED_BASE in streamed.ts) — an early
             connection means the DNS+TLS handshake is already done by the time the first real
@@ -60,15 +75,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://api.watchfooty.su" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://site.web.api.espn.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://streamed.pk" crossOrigin="anonymous" />
-        {/* Only the exact weight/fill instance actually used (wght 400, FILL 0 — see the fixed
-            font-weight: normal in styles.css's .material-symbols-outlined utility and the fact
-            FILL is never varied anywhere) rather than the full variable font range. Left on Google
-            Fonts rather than migrated to next/font/google like Inter above: this is a variable icon
-            font pinned to specific wght/FILL axis values via the URL itself, and next/font's axes
-            support is built around ordinary text fonts' weight/style — there's no confirmed-safe way
-            to carry that exact axis pinning through it without risking every icon on the site
-            silently rendering as the wrong glyph, so it's not worth the migration here. */}
-        <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0&display=swap" rel="stylesheet" />
       </head>
       <body className="bg-brand-bg text-white font-sans">
         <NavigationProgress>{children}</NavigationProgress>
