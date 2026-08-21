@@ -282,11 +282,50 @@ function isWithinWindow(match: Match, windowDays: number) {
   return kickoff >= startOfToday && kickoff < endOfWindow;
 }
 
+// WatchFooty's own backend doesn't always agree with itself on a fixture's id — confirmed directly:
+// the same real Arsenal vs Coventry City match came back as two different `matchId` values depending
+// on which date bucket served it (SPORT_PAGE_DATE_OFFSETS fetches yesterday through two days out in
+// parallel, and a fixture spanning a date-bucket boundary can apparently get assigned a fresh id on
+// one side). Id-only dedup can't catch that — two different ids just look like two different
+// matches — so every team-based fixture with a known kickoff time also gets checked against a second
+// signal: same sport, same two teams (order-independent), kickoff within a few hours of an
+// already-seen entry for that pairing. A time WINDOW, deliberately not just "same calendar day": a
+// baseball doubleheader is two genuinely separate games between the same two teams on the same day,
+// hours apart — collapsing those would hide a real second game instead of fixing a duplicate. Two
+// mirrors describing the same real kickoff should agree closely on its time, so a tight window still
+// catches the cross-id case without catching a doubleheader's second game. Event-style fixtures with
+// no team names (fighting cards, racing sessions), and any match with no parseable kickoff time, get
+// only id-based dedup, same as before — there's nothing safe to correlate them on otherwise.
+const FIXTURE_DEDUPE_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+function normalizeTeamKey(name?: string): string {
+  return (name || '').toLowerCase().trim();
+}
+
+// Team names are sorted so which side WatchFooty called "home" vs "away" on a given mirror can't
+// produce two different keys for what's still the same pairing.
+function teamPairingKey(match: Match): string | null {
+  if (!match.homeTeam || !match.awayTeam) return null;
+  const teams = [normalizeTeamKey(match.homeTeam), normalizeTeamKey(match.awayTeam)].sort().join('|');
+  return `${match.sportId}:${teams}`;
+}
+
 function dedupeMatches(matches: Match[]): Match[] {
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenKickoffsByPairing = new Map<string, number[]>();
   return matches.filter((match) => {
-    if (seen.has(match.id)) return false;
-    seen.add(match.id);
+    if (seenIds.has(match.id)) return false;
+
+    const pairing = teamPairingKey(match);
+    const kickoff = match.startTime ? new Date(match.startTime).getTime() : NaN;
+    if (pairing && !Number.isNaN(kickoff)) {
+      const seenTimes = seenKickoffsByPairing.get(pairing) ?? [];
+      if (seenTimes.some((time) => Math.abs(time - kickoff) < FIXTURE_DEDUPE_WINDOW_MS)) return false;
+      seenTimes.push(kickoff);
+      seenKickoffsByPairing.set(pairing, seenTimes);
+    }
+
+    seenIds.add(match.id);
     return true;
   });
 }
