@@ -2,14 +2,13 @@ import { getMatches, getMatchesForSports, getFeaturedMatches } from '../api/watc
 import { SHOWN_SPORT_SLUGS } from '../lib/sports';
 import { HomePage } from '../ui/HomePage';
 
-// Without this, the page has no ISR entry at all — fully dynamic — which means Next's client-side
-// Router Cache won't hold onto it either (staleTimes.dynamic defaults to 0), so pressing back from a
-// match page always re-runs the full getMatchesForSports/getFeaturedMatches fetch from scratch,
-// including the multi-origin fallback chain if the primary is slow that day. Same 20s window as the
-// match page's own revalidate (see its comment) — back/forward now reuses that instead of paying for
-// a fresh multi-second fetch every time.
-export const revalidate = 20;
-
+// No `export const revalidate` here — it would be a no-op. getMatchesForSports/getMatches always
+// include at least one `cacheable: false` fetch (see requestJson's comment on why), and per Next's
+// own caching rules, any `cache: 'no-store'` fetch inside a route forces that whole route to be
+// server-rendered fresh on every request, silently ignoring its own `revalidate` export. Verified
+// directly — back-to-back requests to this page showed no speedup at all. The fix for slow
+// back/forward navigation lives in next.config.js's `experimental.staleTimes.dynamic` instead, which
+// governs the browser's client-side Router Cache independently of server-side rendering mode.
 export default async function Page({ searchParams }: { searchParams: Promise<{ sport?: string }> }) {
   const sport = (await searchParams).sport || 'all';
   // Fetched together (not left to HomePage's own client effect) so the SSR'd HTML has both the

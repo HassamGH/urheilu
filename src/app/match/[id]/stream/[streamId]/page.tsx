@@ -2,9 +2,8 @@ import { notFound } from 'next/navigation';
 import { getMatchDetails, getStreams } from '../../../../../api/watchfooty';
 import { PlayerPageClient } from './player-page-client';
 
-// See the matching comment on the match page's revalidate — same reasoning, same TTL.
-export const revalidate = 20;
-
+// No `export const revalidate` here — see the matching comment on the match page for why it's a
+// no-op (getStreams' uncacheable fetch forces this route dynamic regardless).
 export default async function Page({ params }: { params: Promise<{ id: string; streamId: string }> }) {
   const { id, streamId } = await params;
   const matchId = decodeURIComponent(id);

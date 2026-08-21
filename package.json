@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev -H 0.0.0.0",
     "build": "next build",
-    "start": "next start -H 0.0.0.0"
+    "start": "next start -H 0.0.0.0",
+    "test": "vitest run"
   },
   "dependencies": {
     "hls.js": "^1.6.7",
@@ -20,6 +21,7 @@
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.11"
   }
 }

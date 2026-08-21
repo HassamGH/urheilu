@@ -540,43 +540,64 @@ export async function getFeaturedMatches(signal?: AbortSignal) {
   return dedupeMatches([...live, ...today, ...tomorrow]).filter((match) => FEATURED_ALLOWED_SPORTS.has(match.sportId));
 }
 
+// Shared by getMatchDetails and getStreams — both need "fetch a raw match by id from one of
+// WatchFooty's two shapes of endpoint" and were duplicating the extract-and-pair-with-assetOrigin
+// logic. Deliberately NOT a single "try X then Y and return the first hit" helper on top of these:
+// the two callers disagree on fetch order (single-match first is cheap and usually right for
+// getMatchDetails; getStreams already has the sport-scoped listing in hand from its caller, so that
+// goes first) and on what counts as success (getMatchDetails only cares whether a match was found at
+// all; getStreams needs a match AND non-empty streams, but still wants the raw match's team names for
+// its own further fallback even when streams are empty) — forcing those into one control-flow
+// function would either lose the raw match on a "found but not usable" result or leak per-caller
+// success criteria into a supposedly-generic helper. Keeping just the fetch/extract pair shared
+// avoids the duplication without pretending the two flows are the same shape.
+async function fetchSingleMatchRaw(matchId: string, signal?: AbortSignal): Promise<OriginTaggedMatch | undefined> {
+  const { data, assetOrigin } = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
+  const raw = Array.isArray(data) ? data[0] : data;
+  return raw && { raw, assetOrigin };
+}
+
+async function fetchListingMatchRaw(path: string, matchId: string, signal?: AbortSignal): Promise<OriginTaggedMatch | undefined> {
+  // Not cacheable — full listings are the largest responses this API returns (see requestJson).
+  const { data, assetOrigin } = await requestJson<RawMatch[]>(path, signal, false);
+  const raw = data.find((item) => (item.matchId || item.id) === matchId);
+  return raw && { raw, assetOrigin };
+}
+
 export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
   // The single-match endpoint is intermittently unreliable (404s or empty results for matches that
-  // the listing endpoint returns fine), so fall back to searching the full listing before giving up.
+  // the listing endpoint returns fine), so try it first (cheap) and fall back to the full listing.
+  // "Usable" means both a raw match was found AND normalizeMatchDetails could make sense of it — a
+  // raw match that fails to normalize (malformed data) falls through to the listing exactly like one
+  // that was never found at all.
+  let match: MatchDetails | null = null;
   try {
-    const { data, assetOrigin } = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
-    const raw = Array.isArray(data) ? data[0] : data;
-    const match = raw && normalizeMatchDetails(raw, assetOrigin, matchId);
-    if (match) {
-      const [corrected] = await correctCricketMatchTimes([match], signal);
-      return correctStaleLiveCricket(corrected) as MatchDetails;
-    }
+    const found = await fetchSingleMatchRaw(matchId, signal);
+    match = found ? normalizeMatchDetails(found.raw, found.assetOrigin, matchId) : null;
   } catch {
     // fall through to the listing-based lookup below
   }
-
-  // Not cacheable — the combined all-sports listing is the largest response this API returns.
-  const { data: listing, assetOrigin } = await requestJson<RawMatch[]>('/matches/all', signal, false);
-  const raw = listing.find((item) => (item.matchId || item.id) === matchId);
-  const match = raw && normalizeMatchDetails(raw, assetOrigin, matchId);
+  if (!match) {
+    const found = await fetchListingMatchRaw('/matches/all', matchId, signal);
+    match = found ? normalizeMatchDetails(found.raw, found.assetOrigin, matchId) : null;
+  }
   if (!match) throw new Error('Match not found');
+
   const [corrected] = await correctCricketMatchTimes([match], signal);
   return correctStaleLiveCricket(corrected) as MatchDetails;
 }
 
 export async function getStreams(matchId: string, sportId?: string, signal?: AbortSignal) {
-  // Not cacheable — same-sized listing as fetchRawMatchesForSport/getMatchDetails' fallback above.
   // A failure here (e.g. a single timed-out origin, common on mobile PWA resume) means "streams
   // unknown", not "every source is down" — so it degrades to the streamed.pk fallback below rather
   // than throwing and taking the whole match page down with it.
-  let raw: RawMatch | undefined;
+  let found: OriginTaggedMatch | undefined;
   try {
-    const { data } = await requestJson<RawMatch[]>(`/matches/${sportId || 'all'}`, signal, false);
-    raw = data.find((item) => (item.matchId || item.id) === matchId);
+    found = await fetchListingMatchRaw(`/matches/${sportId || 'all'}`, matchId, signal);
   } catch {
-    raw = undefined;
+    found = undefined;
   }
-  let streams = (raw?.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
+  let streams = (found?.raw.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
 
   // The listing endpoint doesn't always carry every match that exists — the mirror image of the
   // problem getMatchDetails already works around (a single-match 404 where the listing has it fine):
@@ -586,10 +607,14 @@ export async function getStreams(matchId: string, sportId?: string, signal?: Abo
   // listing came up empty, since it's a second full request.
   if (streams.length === 0) {
     try {
-      const { data } = await requestJson<RawMatch[] | RawMatch>(`/match/${matchId}`, signal);
-      const single = Array.isArray(data) ? data[0] : data;
-      streams = (single?.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
-      raw ||= single;
+      const single = await fetchSingleMatchRaw(matchId, signal);
+      if (single) {
+        streams = (single.raw.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
+        // Only replaces `found` when the listing had nothing at all — if the listing already found
+        // this match (just with no usable streams), its `raw` is kept for the team-name fallback
+        // below, since it's the richer of the two records where both point at the same match.
+        found ||= single;
+      }
     } catch {
       // fall through to the streamed.pk fallback below
     }
@@ -603,5 +628,5 @@ export async function getStreams(matchId: string, sportId?: string, signal?: Abo
   // instead, and pooling indiscriminately would attach an unrelated match's stream when more than
   // one game in that sport is live at once). Matches with no team names (e.g. single-event fighting
   // cards) can never correlate this way, so they'll just get no fallback — expected, not a bug.
-  return getStreamedFallbackStreams(toStreamedSport(sportId), matchId, raw?.teams?.home?.name, raw?.teams?.away?.name, signal).catch(() => []);
+  return getStreamedFallbackStreams(toStreamedSport(sportId), matchId, found?.raw.teams?.home?.name, found?.raw.teams?.away?.name, signal).catch(() => []);
 }
