@@ -10,6 +10,7 @@ import { isAmateurMatch } from '../lib/excludeAmateur';
 import { isPlayoffMatch } from '../lib/excludePlayoffs';
 import { dateParam } from '../lib/dateParams';
 import { SHOWN_SPORT_SLUGS } from '../lib/sports';
+import { logFetchFailure, toError } from '../lib/serverLog';
 import { getStreamedFallbackStreams, toStreamedSport, dropPosterlessFightingMatches } from './streamed';
 import { correctCricketMatchTimes, warmCricinfoCache } from './cricinfo';
 
@@ -117,38 +118,11 @@ function withOriginTimeout(signal: AbortSignal | undefined): AbortSignal {
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-// `AbortSignal.timeout()`'s abort reason is a DOMException, not a plain Error — and unlike a plain
-// Error, DOMException's `message` is a getter-only prototype property with no setter. Next's own
-// error handling tries to write to `.message` when logging/serializing a thrown value, which is
-// silent for a normal Error but throws a totally unrelated TypeError for a raw DOMException — seen
-// in practice: exhausting every origin surfaced "Cannot set property message of [object
-// DOMException] which has only a getter" instead of the actual WatchFooty failure. Normalizing
-// whatever was caught into a real `Error` before it's ever stored/rethrown avoids that regardless
-// of what specifically caused it.
-function toError(err: unknown): Error {
-  return new Error(err instanceof Error ? err.message : String(err));
-}
-
-// Shared classification for every place a failed upstream fetch gets logged/reported, so the same
-// underlying failure reads the same way everywhere instead of each call site inventing its own
-// label. TIMEOUT is our own withOriginTimeout firing (origin never answered at all). ABORTED covers
-// the connection dropping mid-response — "The destination stream closed early" and its relatives
-// (ECONNRESET, "socket hang up") all mean the same thing: something between us and the origin closed
-// the pipe before the body finished, most often because the client that originally asked for this
-// page navigated away or the app was backgrounded (common on mobile PWAs) and Next canceled the
-// in-flight render — not a WatchFooty outage, so it gets its own label rather than folding into the
-// generic ERROR bucket a real 4xx/5xx/DNS failure gets.
-function classifyFetchError(err: unknown): { label: string; status: number } {
-  const message = err instanceof Error ? err.message : String(err);
-  if (/timeout|timed out/i.test(message)) return { label: 'TIMEOUT', status: 504 };
-  if (/closed early|aborted|econnreset|socket hang up/i.test(message)) return { label: 'ABORTED', status: 499 };
-  return { label: 'ERROR', status: 500 };
-}
-
 async function requestJson<T>(path: string, signal?: AbortSignal, cacheable = true): Promise<ApiResult<T>> {
   if (typeof window === 'undefined') {
     let lastError: Error | undefined;
     for (const origin of WATCHFOOTY_API_ORIGINS) {
+      const attemptStart = Date.now();
       try {
         const response = await fetch(`${origin}/api/v1${path}`, {
           signal: withOriginTimeout(signal),
@@ -168,12 +142,11 @@ async function requestJson<T>(path: string, signal?: AbortSignal, cacheable = tr
         // AbortError — the fetch to WatchFooty was still streaming its response in when the outer
         // signal fired, so the read itself throws whatever shape undici happens to use, not a clean
         // Error. Always normalize through toError before it leaves this function (same reason as the
-        // DOMException handling above), classified/logged the same way fetchRawMatchesForSport labels
-        // its own failures, so this never surfaces as an unlabeled crash with just a Next digest.
+        // DOMException handling above) and log through the shared helper, so this never surfaces as
+        // an unlabeled crash with just a Next digest.
         if (signal?.aborted) {
           const normalized = toError(err);
-          const { label } = classifyFetchError(normalized);
-          console.warn(` ${ANSI_RED}WARN${ANSI_RESET} GET ${path} ${ANSI_RED}[${label}]${ANSI_RESET} client disconnected mid-request`);
+          logFetchFailure('GET', path, normalized, attemptStart, '— client disconnected mid-request');
           throw normalized;
         }
         lastError = toError(err);
@@ -386,11 +359,6 @@ type OriginTaggedMatch = { raw: RawMatch; assetOrigin: string };
 // at three offsets in flight, each independently retrying across all of WATCHFOOTY_API_ORIGINS, one
 // date range having a bad time (already logged inside requestJson's own retries) shouldn't take the
 // whole sport's listing down with it, empty-handed, rather than just quietly missing that one day.
-// ANSI codes rather than a color-logging dependency — this only ever runs server-side, straight to
-// the terminal Next's dev server already prints its own colored `GET /path 200 in 123ms` lines to,
-// so plain escape codes match that output instead of introducing a different look.
-const ANSI_RED = '\x1b[31m';
-const ANSI_RESET = '\x1b[0m';
 
 // Last-known-good result per `sport:offset`, kept purely in server-process memory (this endpoint is
 // never cacheable via Next's Data Cache — see below — so there'd otherwise be nothing to fall back
@@ -419,26 +387,8 @@ async function fetchRawMatchesForSport(sport: string, signal?: AbortSignal, offs
         // `warn`, not `error`: every origin timing out for one date/sport just means that one
         // offset comes back empty for this request — the listing still renders with whatever the
         // other offsets/sports returned, so this isn't a failure the page needs to surface as one.
-        //
-        // Shaped to match Next's own `GET /path 200 in 123ms` dev request logs — one line, not a
-        // multi-line `console.warn(msg, err)` dump (Next's console intercept renders an Error
-        // argument's full source-mapped stack trace, many times longer than the one line that
-        // actually matters here). `reason` is folded into a label rather than appended as free text
-        // for the same reason `[TIMEOUT]` reads better inline than a full DOMException message would.
-        // Duration formatted the same way Next's own request log switches from `123ms` to `4.1s` past
-        // one second, so a slow-but-not-timed-out entry (a real 5s+ origin hang) reads consistently
-        // next to Next's own lines instead of standing out as a raw millisecond count.
-        const { status, label } = classifyFetchError(err);
-        const elapsed = Date.now() - start;
-        const duration = elapsed >= 1000 ? `${(elapsed / 1000).toFixed(1)}s` : `${elapsed}ms`;
         const fallback = lastGoodMatchesBySportOffset.get(cacheKey);
-        // `WARN` level prefix — the pino/winston convention — makes this greppable/filterable by
-        // severity the way a bare Next-style request line (no level marker) isn't.
-        console.warn(
-          ` ${ANSI_RED}WARN${ANSI_RESET} GET ${path} ${ANSI_RED}${status}${ANSI_RESET} in ${duration} ${ANSI_RED}[${label}]${ANSI_RESET}${
-            fallback ? ' — serving last-known-good snapshot' : ''
-          }`
-        );
+        logFetchFailure('GET', path, err, start, fallback ? '— serving last-known-good snapshot' : undefined);
         return fallback || [];
       }
     })
@@ -571,15 +521,24 @@ export async function getMatchDetails(matchId: string, signal?: AbortSignal) {
   // raw match that fails to normalize (malformed data) falls through to the listing exactly like one
   // that was never found at all.
   let match: MatchDetails | null = null;
+  const singlePath = `/match/${matchId}`;
+  const singleStart = Date.now();
   try {
     const found = await fetchSingleMatchRaw(matchId, signal);
     match = found ? normalizeMatchDetails(found.raw, found.assetOrigin, matchId) : null;
-  } catch {
-    // fall through to the listing-based lookup below
+  } catch (err) {
+    logFetchFailure('GET', singlePath, err, singleStart, '— falling back to the full listing');
   }
   if (!match) {
-    const found = await fetchListingMatchRaw('/matches/all', matchId, signal);
-    match = found ? normalizeMatchDetails(found.raw, found.assetOrigin, matchId) : null;
+    const listingPath = '/matches/all';
+    const listingStart = Date.now();
+    try {
+      const found = await fetchListingMatchRaw(listingPath, matchId, signal);
+      match = found ? normalizeMatchDetails(found.raw, found.assetOrigin, matchId) : null;
+    } catch (err) {
+      logFetchFailure('GET', listingPath, err, listingStart);
+      throw err;
+    }
   }
   if (!match) throw new Error('Match not found');
 
@@ -592,9 +551,12 @@ export async function getStreams(matchId: string, sportId?: string, signal?: Abo
   // unknown", not "every source is down" — so it degrades to the streamed.pk fallback below rather
   // than throwing and taking the whole match page down with it.
   let found: OriginTaggedMatch | undefined;
+  const listingPath = `/matches/${sportId || 'all'}`;
+  const listingStart = Date.now();
   try {
-    found = await fetchListingMatchRaw(`/matches/${sportId || 'all'}`, matchId, signal);
-  } catch {
+    found = await fetchListingMatchRaw(listingPath, matchId, signal);
+  } catch (err) {
+    logFetchFailure('GET', listingPath, err, listingStart, '— trying the single-match endpoint next');
     found = undefined;
   }
   let streams = (found?.raw.streams || []).map((stream, index) => normalizeStream(stream, matchId, index)).filter(Boolean) as Stream[];
@@ -606,6 +568,8 @@ export async function getStreams(matchId: string, sportId?: string, signal?: Abo
   // was simply absent from `/matches/football` on every date checked. Only worth trying when the
   // listing came up empty, since it's a second full request.
   if (streams.length === 0) {
+    const singlePath = `/match/${matchId}`;
+    const singleStart = Date.now();
     try {
       const single = await fetchSingleMatchRaw(matchId, signal);
       if (single) {
@@ -615,8 +579,8 @@ export async function getStreams(matchId: string, sportId?: string, signal?: Abo
         // below, since it's the richer of the two records where both point at the same match.
         found ||= single;
       }
-    } catch {
-      // fall through to the streamed.pk fallback below
+    } catch (err) {
+      logFetchFailure('GET', singlePath, err, singleStart, '— falling back to streamed.pk');
     }
   }
 

@@ -1,4 +1,5 @@
 import type { Match, Stream } from '../types';
+import { logFetchFailure } from '../lib/serverLog';
 
 const STREAMED_BASE = 'https://streamed.pk';
 
@@ -62,9 +63,16 @@ async function fetchStreamsFor(matches: RawStreamedMatch[], signal?: AbortSignal
   const perMatch = await Promise.all(
     matches.map(async (match) => {
       const perSource = await Promise.all(
-        (match.sources || []).map(({ source, id }) =>
-          requestJson<RawStreamedStream[]>(`/api/stream/${source}/${id}`, signal).catch(() => [] as RawStreamedStream[])
-        )
+        (match.sources || []).map(async ({ source, id }) => {
+          const path = `/api/stream/${source}/${id}`;
+          const start = Date.now();
+          try {
+            return await requestJson<RawStreamedStream[]>(path, signal);
+          } catch (err) {
+            logFetchFailure('GET', path, err, start);
+            return [] as RawStreamedStream[];
+          }
+        })
       );
       return perSource.flat().map((stream) => ({ stream, matchTitle: match.title }));
     })
@@ -89,7 +97,18 @@ export async function getStreamedFallbackStreams(
   awayTeam: string | undefined,
   signal?: AbortSignal
 ): Promise<Stream[]> {
-  const matches = await requestJson<RawStreamedMatch[]>(`/api/matches/${sport}`, signal);
+  const path = `/api/matches/${sport}`;
+  const start = Date.now();
+  let matches: RawStreamedMatch[];
+  try {
+    matches = await requestJson<RawStreamedMatch[]>(path, signal);
+  } catch (err) {
+    // The caller (watchfooty.ts's getStreams) already swallows a rejection from this whole function
+    // into an empty result — logging here, where the actual failing path is known, instead of at
+    // that outer catch, is what keeps this failure visible instead of disappearing silently.
+    logFetchFailure('GET', path, err, start);
+    return [];
+  }
   const correlated = matches.filter((match) => teamsCorrelate(match, homeTeam, awayTeam));
 
   const isUnconfirmed = correlated.length === 0 && sport === 'cricket';
@@ -121,7 +140,11 @@ let fightMatchesPromise: Promise<RawStreamedMatch[]> | null = null;
 
 function getStreamedFightMatches() {
   if (!fightMatchesPromise) {
-    fightMatchesPromise = requestJson<RawStreamedMatch[]>('/api/matches/fight').catch(() => [] as RawStreamedMatch[]);
+    const start = Date.now();
+    fightMatchesPromise = requestJson<RawStreamedMatch[]>('/api/matches/fight').catch((err) => {
+      logFetchFailure('GET', '/api/matches/fight', err, start);
+      return [] as RawStreamedMatch[];
+    });
   }
   return fightMatchesPromise;
 }
@@ -180,7 +203,11 @@ let racingMatchesPromise: Promise<RawStreamedMatch[]> | null = null;
 
 function getStreamedRacingMatches() {
   if (!racingMatchesPromise) {
-    racingMatchesPromise = requestJson<RawStreamedMatch[]>('/api/matches/motor-sports').catch(() => [] as RawStreamedMatch[]);
+    const start = Date.now();
+    racingMatchesPromise = requestJson<RawStreamedMatch[]>('/api/matches/motor-sports').catch((err) => {
+      logFetchFailure('GET', '/api/matches/motor-sports', err, start);
+      return [] as RawStreamedMatch[];
+    });
   }
   return racingMatchesPromise;
 }

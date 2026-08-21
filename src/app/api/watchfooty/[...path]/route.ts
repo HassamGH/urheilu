@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { WATCHFOOTY_API_ORIGINS, ORIGIN_TIMEOUT_MS } from '../../../../api/watchfooty';
+import { logFetchFailure, toError } from '../../../../lib/serverLog';
 
 // The client-side counterpart to requestJson's own server-side primary/fallback loop in
 // watchfooty.ts — browser calls (the sport-filter switch, the 90s poll/retry, and the match/stream
@@ -11,10 +12,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   const { path } = await params;
   const { search } = new URL(request.url);
   const upstreamPath = `/api/v1/${path.join('/')}${search}`;
-
-  // See toError's comment in watchfooty.ts — AbortSignal.timeout()'s DOMException can't have its
-  // `.message` written to, which crashes Next's own error handling if a raw one ever gets thrown.
-  const toError = (err: unknown): Error => new Error(err instanceof Error ? err.message : String(err));
+  const start = Date.now();
 
   let lastError: Error | undefined;
   for (const origin of WATCHFOOTY_API_ORIGINS) {
@@ -37,11 +35,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
         }
       });
     } catch (err) {
-      if (request.signal.aborted) throw err;
+      // See toError's comment in serverLog.ts — a raw DOMException/undici error can crash Next's own
+      // error handling if it ever escapes unnormalized, same as requestJson's server-side branch.
+      if (request.signal.aborted) {
+        const normalized = toError(err);
+        logFetchFailure('GET', upstreamPath, normalized, start, '— client disconnected mid-request');
+        throw normalized;
+      }
       lastError = toError(err);
     }
   }
 
+  logFetchFailure('GET', upstreamPath, lastError, start, `— all ${WATCHFOOTY_API_ORIGINS.length} origins unavailable`);
   return NextResponse.json(
     { error: `All ${WATCHFOOTY_API_ORIGINS.length} WatchFooty origins are unavailable: ${lastError?.message}` },
     { status: 502 }

@@ -1,4 +1,5 @@
 import type { Match } from '../types';
+import { logFetchFailure } from '../lib/serverLog';
 
 // ESPN's own aggregate scoreboard (used by espncricinfo.com/espn.com themselves) — unlike ESPN's
 // per-league `site.api.espn.com` scoreboard (which needs a league id we don't have ahead of time),
@@ -68,9 +69,23 @@ let cricinfoMatchesPromise: Promise<CricinfoMatch[]> | null = null;
 
 function getAllCricinfoMatches(signal?: AbortSignal): Promise<CricinfoMatch[]> {
   if (!cricinfoMatchesPromise) {
-    cricinfoMatchesPromise = Promise.all(CRICINFO_DATE_OFFSETS.map((offset) => requestForOffset(offset, signal)))
-      .then((responses) => responses.flatMap(flattenEvents))
-      .catch(() => []);
+    // Each offset caught individually (not left to reject the outer Promise.all) — same reasoning
+    // as watchfooty.ts's fetchRawMatchesForSport: one bad date shouldn't cost every other offset's
+    // already-fetched corrections, and a silent blanket `.catch(() => [])` here previously meant a
+    // single ESPN hiccup on any one of the 8 offsets discarded the whole batch with zero indication
+    // of what failed or why.
+    cricinfoMatchesPromise = Promise.all(
+      CRICINFO_DATE_OFFSETS.map(async (offset) => {
+        const path = `/scoreboard/header?sport=cricket&dates=${espnDateParam(offset)}`;
+        const start = Date.now();
+        try {
+          return flattenEvents(await requestForOffset(offset, signal));
+        } catch (err) {
+          logFetchFailure('GET', path, err, start);
+          return [];
+        }
+      })
+    ).then((results) => results.flat());
   }
   return cricinfoMatchesPromise;
 }
