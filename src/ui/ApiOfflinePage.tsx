@@ -7,9 +7,9 @@ import { useMarkNavigating, useMarkPageArrived } from '../lib/navigation';
 
 // Shown in place of a page whose server-side data fetch failed outright — every WatchFooty origin
 // unreachable, not just one slow/erroring source (a single bad source degrades gracefully via
-// ErrorBlock/EmptyState instead, see HomePage/MatchPage). Styled off UNAUTHORIZED_PAGE.ts's
-// card — same logo/wordmark/red-divider identity and Georgia-serif message — so a total outage
-// reads as "the same site, temporarily down" rather than a generic framework crash page.
+// ErrorBlock/EmptyState instead, see HomePage/MatchPage). Shares UNAUTHORIZED_PAGE.ts's
+// logo/wordmark/red-divider identity and Georgia-serif message — so a total outage reads as "the
+// same site, temporarily down" rather than a generic framework crash page.
 export function ApiOfflinePage({ onRetry }: { onRetry: () => void }) {
   const markNavigating = useMarkNavigating();
   // Tells app/loading.tsx the navigation that led here (if any) is over — see its comment.
@@ -17,23 +17,30 @@ export function ApiOfflinePage({ onRetry }: { onRetry: () => void }) {
   useEffect(markPageArrived, [markPageArrived]);
 
   return (
-    <div className="min-h-screen bg-brand-bg text-white flex items-center justify-center px-4">
-      <div className="w-full max-w-sm text-center animate-pop-in rounded-2xl border border-brand-border bg-brand-surface px-8 py-10">
-        <Logo className="w-14 h-14 mx-auto mb-5" />
-        <p className="text-lg font-black italic tracking-tight mb-3">URHEILU</p>
-        <hr className="w-8 h-0.5 mx-auto mb-5 border-none bg-brand-live" />
+    <div className="relative min-h-screen overflow-hidden bg-brand-bg text-white flex flex-col items-center justify-center px-4 text-center">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ backgroundImage: 'radial-gradient(circle at 50% 32%, rgba(255, 59, 48, 0.14), transparent 60%)' }}
+      />
 
-        <span className="material-symbols-outlined text-4xl! text-brand-muted mb-4 inline-block">cloud_off</span>
+      <div className="relative flex flex-col items-center animate-pop-in">
+        <Logo className="w-16 h-16 mb-6" />
+        <p className="text-lg font-black italic tracking-tight mb-3">URHEILU</p>
+        <hr className="w-8 h-0.5 mb-5 border-none bg-brand-live" />
+
+        <span className="material-symbols-outlined text-4xl! text-brand-muted opacity-50 mb-5 inline-block">
+          cloud_off
+        </span>
         <h1 className="text-xl font-bold mb-2">Scores are offline</h1>
-        <p className="text-brand-muted font-serif text-sm leading-relaxed mb-8">
+        <p className="text-brand-muted font-serif text-sm leading-relaxed mb-8 max-w-sm">
           We can't reach live match data right now — every source we check is down. It's usually back within a
           few minutes.
         </p>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col items-center gap-3">
           <button
             onClick={onRetry}
-            className="inline-flex items-center justify-center gap-2 h-11 bg-white text-black font-bold text-xs uppercase tracking-wide hover:bg-gray-200 transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 h-11 px-6 bg-white text-black font-bold text-xs uppercase tracking-wide hover:bg-gray-200 transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]!">refresh</span>
             Try again
