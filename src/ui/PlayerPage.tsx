@@ -79,7 +79,10 @@ function VideoPlayer({ stream, matchId }: { stream: Stream; matchId: string }) {
   if (stream.type === 'embed') {
     return (
       <div className="fixed inset-0 bg-black">
-        <iframe className="w-full h-full border-0 block" title={stream.name} src={stream.url} allow="autoplay; fullscreen; picture-in-picture" allowFullScreen />
+        {/* `allow="fullscreen"` already grants it via the modern Permissions Policy syntax — the
+            legacy `allowfullscreen` boolean attribute alongside it is redundant and makes the
+            browser log a "takes precedence" warning on every embed load for no behavior change. */}
+        <iframe className="w-full h-full border-0 block" title={stream.name} src={stream.url} allow="autoplay; fullscreen; picture-in-picture" />
       </div>
     );
   }

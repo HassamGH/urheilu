@@ -31,3 +31,18 @@ export function formatMatchSchedule(value?: string) {
   if (!value) return 'Time unavailable';
   return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: DISPLAY_TIME_ZONE }).format(new Date(value));
 }
+
+// Live countdown to kickoff (see FeaturedMatchBanner, which ticks this every second). Days out still
+// drops seconds — updating a field nobody can perceive changing between renders is just noise at
+// that distance — but hours/minutes always tick down to the second once kickoff is under a day away.
+export function formatCountdown(ms: number): string {
+  if (ms <= 0) return 'Starting now';
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Match } from '../../types';
 import { useMarkNavigating } from '../../lib/navigation';
-import { formatMatchSchedule, teamInitial } from '../../lib/matchFormatting';
+import { formatCountdown, formatMatchSchedule, teamInitial } from '../../lib/matchFormatting';
 import { useDragScroll } from '../../lib/useDragScroll';
 import { TeamLogo } from './TeamLogo';
 import { MatchupDivider } from './MatchupDivider';
@@ -60,6 +60,23 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
   // finished-but-no-longer-live match (startTime in the past) is left enabled; only a genuinely
   // future kickoff disables it.
   const notYetStarted = !match.isLive && Boolean(match.startTime) && new Date(match.startTime!).getTime() > Date.now();
+
+  // `null` until the first client-side tick, deliberately — computing this inline from Date.now()
+  // during render (as an earlier version did) reads a different value on the server than it does on
+  // the client's own first render moments later, and once the countdown showed seconds that gap
+  // became wide enough to actually land on a different second, which React's hydration surfaces as
+  // error #418 ("text content did not match"). Server and the client's pre-effect render both show
+  // the exact same thing (null, formatted as the same fallback below) because neither one ever calls
+  // Date.now() to produce it — only the effect does, and effects never run during SSR.
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (!notYetStarted || !match.startTime) return;
+    const target = new Date(match.startTime).getTime();
+    const tick = () => setRemainingMs(target - Date.now());
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [notYetStarted, match.startTime]);
 
   return (
     <div className="relative w-full h-full shrink-0 snap-center overflow-hidden bg-black">
@@ -119,11 +136,11 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
           <button
             aria-label={`${match.title} has not started yet`}
             disabled
-            className="mt-5 shrink-0 inline-flex w-fit items-center gap-3
-                      rounded-md border border-white/15
+            className="mt-5 shrink-0 inline-flex w-fit items-center gap-2
+                      rounded-sm border border-white/15
                       bg-linear-to-r from-white/8 to-white/3
-                      px-5 py-2.5
-                      text-sm font-bold tracking-wide text-white/75
+                      px-5 py-3
+                      font-bold tracking-wide text-white/75
                       backdrop-blur-xl
                       shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]
                       cursor-not-allowed"
@@ -132,10 +149,10 @@ function FeaturedSlide({ match, priority }: { match: Match; priority: boolean })
               schedule
             </span>
 
-            <span>Upcoming</span>
+            <span className="text-white/50">Kickoff Soon</span>
 
             <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/40">
-              Soon
+              {remainingMs === null ? 'Soon' : formatCountdown(remainingMs)}
             </span>
           </button>
         ) : (
