@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import localFont from 'next/font/local';
 import '../styles.css';
 import { ServiceWorkerRegistration } from './service-worker-registration';
+import { ContentProtection } from './content-protection';
 import { NavigationProgress } from '../lib/navigation';
 import { AppLoadingScreen } from '../components/common/AppLoadingScreen';
 
@@ -80,6 +81,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <NavigationProgress>{children}</NavigationProgress>
         <AppLoadingScreen />
         <ServiceWorkerRegistration />
+        <ContentProtection />
       </body>
     </html>
   );
