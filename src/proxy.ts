@@ -42,21 +42,45 @@ async function timingSafeEqual(a: string, b: string): Promise<boolean> {
   return diff === 0;
 }
 
-// HTTP Basic Auth carries "username:password" — there's no concept of a distinct user here (one
-// shared site password, same model as before), so the username portion is accepted as anything
-// (including empty) and only the password half is actually checked.
-function extractPassword(decoded: string): string {
+// HTTP Basic Auth carries "username:password" as one base64 blob, split on the first colon.
+function extractCredentials(decoded: string): { username: string; password: string } {
   const separatorIndex = decoded.indexOf(':');
-  return separatorIndex === -1 ? decoded : decoded.slice(separatorIndex + 1);
+  return separatorIndex === -1
+    ? { username: decoded, password: '' }
+    : { username: decoded.slice(0, separatorIndex), password: decoded.slice(separatorIndex + 1) };
 }
 
+// SITE_USERS holds one shared JSON object mapping username -> password, e.g.
+// {"hassam":"PAKistan@1947","friend1":"correct-horse-battery"} — one login per person instead of
+// one shared site password. Rejects anything that isn't a flat string-to-string object so a typo'd
+// env var (stray array, nested object, non-string value) fails closed instead of silently admitting
+// no one or crashing later on a bad lookup.
+function parseSiteUsers(raw: string): Record<string, string> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length === 0 || !entries.every(([, value]) => typeof value === 'string')) return null;
+  return parsed as Record<string, string>;
+}
+
+// Used in place of a real password when the attempted username isn't in SITE_USERS, so an unknown
+// username still pays for a SHA-256 digest + compare instead of returning immediately — keeping
+// "wrong password" and "no such user" from being trivially distinguishable by response timing.
+const DUMMY_PASSWORD = 'dummy-password-for-unknown-username-timing';
+
 export default async function proxy(request: Request): Promise<Response> {
-  const sitePassword = process.env.SITE_PASSWORD;
-  if (!sitePassword) {
+  const siteUsersRaw = process.env.SITE_USERS;
+  const siteUsers = siteUsersRaw ? parseSiteUsers(siteUsersRaw) : null;
+  if (!siteUsers) {
     // Fail closed: a misconfigured deployment must never silently let everyone through. An "auth"
     // gate that quietly turns itself off under misconfiguration is worse than no gate at all,
     // since it looks protected but isn't.
-    return new Response('Site is not configured for authentication. Set SITE_PASSWORD.', {
+    return new Response('Site is not configured for authentication. Set SITE_USERS to a JSON object mapping usernames to passwords.', {
       status: 500,
       headers: { 'content-type': 'text/plain', 'cache-control': 'no-store' }
     });
@@ -70,8 +94,10 @@ export default async function proxy(request: Request): Promise<Response> {
     } catch {
       return unauthorized();
     }
-    const password = extractPassword(decoded);
-    if (await timingSafeEqual(password, sitePassword)) {
+    const { username, password } = extractCredentials(decoded);
+    const expectedPassword = Object.prototype.hasOwnProperty.call(siteUsers, username) ? siteUsers[username] : undefined;
+    const passwordMatches = await timingSafeEqual(password, expectedPassword ?? DUMMY_PASSWORD);
+    if (expectedPassword !== undefined && passwordMatches) {
       return NextResponse.next();
     }
   }

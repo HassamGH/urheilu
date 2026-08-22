@@ -26,9 +26,13 @@ No API key is required by any of these sources at the time of implementation. If
 
 ## Access
 
-`src/proxy.ts` (Next.js's server-side request-gating convention — file and export renamed from `middleware.ts`/`middleware` as of Next.js 16) enforces HTTP Basic Auth on every request, including the WatchFooty proxy, before anything renders or any data is fetched. The password is compared using a timing-safe SHA-256 digest check, and the gate fails closed (500) if `SITE_PASSWORD` isn't set, rather than silently letting requests through.
+`src/proxy.ts` (Next.js's server-side request-gating convention — file and export renamed from `middleware.ts`/`middleware` as of Next.js 16) enforces HTTP Basic Auth on every request, including the WatchFooty proxy, before anything renders or any data is fetched. Each password is compared using a timing-safe SHA-256 digest check, and the gate fails closed (500) if `SITE_USERS` isn't set or isn't valid, rather than silently letting requests through.
 
-Set `SITE_PASSWORD` in `.env`/`.env.local` (see `.env.example`) for local dev, or in Vercel's Project Settings → Environment Variables for deployed builds.
+Set `SITE_USERS` in `.env`/`.env.local` for local dev, or in Vercel's Project Settings → Environment Variables for deployed builds, to a JSON object mapping username to password — one login per person instead of one shared site password:
+
+```
+SITE_USERS={"hassam":"correct-horse-battery-staple","friend1":"another-password"}
+```
 
 ## Routes
 
