@@ -40,8 +40,25 @@ function espnDateParam(offsetDays: number): string {
 
 // See the matching comment on watchfooty.ts's requestJson — same server-side Data Cache reasoning,
 // same 20s TTL so this never lags behind what that cache already tolerates.
+//
+// Mirrors watchfooty.ts's ORIGIN_TIMEOUT_MS/withOriginTimeout (not imported directly — watchfooty.ts
+// imports THIS module, so importing back would be circular). Without this, a slow/hanging ESPN
+// response had nothing bounding it but the caller's own signal, which is undefined for the initial
+// SSR page load — so a single stuck ESPN request blocked the whole page render indefinitely (measured
+// multi-minute hangs on a cold serverless instance) instead of falling through to "keep WatchFooty's
+// original time" like this function already does for a clean failure.
+const ESPN_TIMEOUT_MS = 5000;
+
+function withEspnTimeout(signal: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(ESPN_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 async function requestForOffset(offsetDays: number, signal?: AbortSignal): Promise<RawEspnResponse> {
-  const response = await fetch(`${ESPN_BASE}/scoreboard/header?sport=cricket&dates=${espnDateParam(offsetDays)}`, { signal, next: { revalidate: 20 } });
+  const response = await fetch(`${ESPN_BASE}/scoreboard/header?sport=cricket&dates=${espnDateParam(offsetDays)}`, {
+    signal: withEspnTimeout(signal),
+    next: { revalidate: 20 }
+  });
   if (!response.ok) throw new Error(`ESPN Cricinfo request failed: ${response.status}`);
   return response.json() as Promise<RawEspnResponse>;
 }

@@ -23,8 +23,22 @@ type RawStreamedStream = {
 
 // See the matching comment on watchfooty.ts's requestJson — same server-side Data Cache reasoning,
 // same 20s TTL so this never lags behind what that cache already tolerates.
+//
+// Mirrors watchfooty.ts's ORIGIN_TIMEOUT_MS/withOriginTimeout (not imported directly — watchfooty.ts
+// imports THIS module, so importing back would be circular). Without this, a slow/hanging streamed.pk
+// response had nothing bounding it but the caller's own signal, which is undefined for the initial
+// SSR page load — so a single stuck request here (e.g. the fight-card fallback poster lookup) blocked
+// the whole page render indefinitely instead of degrading gracefully like every catch site here
+// already assumes it will.
+const STREAMED_TIMEOUT_MS = 5000;
+
+function withStreamedTimeout(signal: AbortSignal | undefined): AbortSignal {
+  const timeout = AbortSignal.timeout(STREAMED_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 async function requestJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${STREAMED_BASE}${path}`, { signal, next: { revalidate: 20 } });
+  const response = await fetch(`${STREAMED_BASE}${path}`, { signal: withStreamedTimeout(signal), next: { revalidate: 20 } });
   if (!response.ok) throw new Error(`Streamed request failed: ${response.status}`);
   return response.json() as Promise<T>;
 }
@@ -170,7 +184,9 @@ export async function getStreamedFightPoster(title: string): Promise<string | un
 async function posterUrlWorks(url?: string): Promise<boolean> {
   if (!url) return false;
   try {
-    const response = await fetch(url, { method: 'HEAD' });
+    // Same STREAMED_TIMEOUT_MS bound as requestJson above — this had no timeout and no signal at
+    // all before, so a hanging WatchFooty poster host could block the page render indefinitely.
+    const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(STREAMED_TIMEOUT_MS) });
     return response.ok;
   } catch {
     return false;
