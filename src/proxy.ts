@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { UNAUTHORIZED_HTML } from './UNAUTHORIZED_PAGE';
+import { SITE_NOT_CONFIGURED_HTML, UNAUTHORIZED_HTML } from './UNAUTHORIZED_PAGE';
 
 // Everything requires valid credentials EXCEPT a small set of purely public, non-sensitive static
 // assets — manifest.webmanifest, sw.js, favicon.svg, icons/* — that a browser fetches outside the
@@ -80,9 +80,9 @@ export default async function proxy(request: Request): Promise<Response> {
     // Fail closed: a misconfigured deployment must never silently let everyone through. An "auth"
     // gate that quietly turns itself off under misconfiguration is worse than no gate at all,
     // since it looks protected but isn't.
-    return new Response('Site is not configured for authentication. Set SITE_USERS to a JSON object mapping usernames to passwords.', {
+    return new Response(SITE_NOT_CONFIGURED_HTML, {
       status: 500,
-      headers: { 'content-type': 'text/plain', 'cache-control': 'no-store' }
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
     });
   }
 
